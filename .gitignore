@@ -8,3 +8,12 @@
 *.html
 *.pdf
 *.DS_Store
+# RStudio / IDE artifacts
+.pcs/
+pcs/
+sources/
+cpp-definition-cache
+saved_source_markers
+
+# R Markdown / Quarto intermediates
+rmd-outputs/
