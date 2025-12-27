@@ -1,8 +1,8 @@
 <a href="https://doi.org/10.5281/zenodo.17206606"><img src="https://zenodo.org/badge/1018696552.svg" alt="DOI"></a>
 
-# R Analyses on Digital Cognitive Training
+# R Analyses of Digital Neuropsychological Interventions
 
-The objective of this study was to examine the clinical effectiveness of digital cognitive training targeting patients with alcohol use disorder. This repository contains the analysis environment used in R, and can be applied for replicating the findings in the study or to conduct updated analyses in the future.
+The objective of this study was to examine the clinical effectiveness of digital neuropsychological interventions targeting patients with alcohol use disorder. This repository contains the analysis environment used in R, and can be applied for replicating the findings in the study or to conduct updated analyses in the future.
 
 ## Affiliation
 
