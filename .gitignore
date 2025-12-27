@@ -2,20 +2,19 @@
 .Rhistory
 .RData
 .Ruserdata
+.Rapp.history
+.DS_Store
 *.xlsx
 *.csv
 *.tiff
 *.html
 *.pdf
 *.DS_Store
-
-# RStudio / IDE artifacts (anywhere)
 **/pcs/
 **/sources/
 **/cpp-definition-cache
 **/saved_source_markers
 **/.Rproj.user/
-
 # Quarto / Rmd
 **/rmd-outputs/
 **/.quarto/
