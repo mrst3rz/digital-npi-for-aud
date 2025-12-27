@@ -41,7 +41,34 @@ The analyses require the following software:
 - RStudio (recommended)
 - Pandoc (installed automatically with RStudio)
 
+## Reproducibility instructions
+
+To reproduce the analyses and regenerate all results reported in the manuscript,
+please follow these steps:
+
+1. Clone the repository:
+   ```bash
+   git clone https://github.com/mrst3rz/digital-npi-for-aud.git
+   cd digital-npi-for-aud
+
+2. renv::restore()
+
+3. rmarkdown::render(
+  "Meta-Analysis of Neuropsychological Interventions.Rmd"
+)
+
+## Affiliation
+
+This work was conducted in affiliation with the University of Southern Denmark.
+
+## Citation
+
+If this code or workflow is used, please cite the corresponding manuscript and
+the archived version of this repository (Zenodo DOI), when applicable.
+
 ## License
+
+This repository is distributed under the MIT License.
 
 [MIT](https://choosealicense.com/licenses/mit/)
 
