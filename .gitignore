@@ -1,21 +1,33 @@
-.Rproj.user
-.Rhistory
-.RData
-.Ruserdata
-.Rapp.history
-.DS_Store
+# Output files
 *.xlsx
 *.csv
 *.tiff
 *.html
 *.pdf
-*.DS_Store
+
+# macOS
+.DS_Store
+
+# R history / session
+.Rapp.history
+.Rhistory
+.RData
+.Ruserdata
+
+# RStudio
+.Rprofile
+.Rproj.user/
 **/pcs/
 **/sources/
 **/cpp-definition-cache
 **/saved_source_markers
-**/.Rproj.user/
-# Quarto / Rmd
+
+# Quarto / Rmd build artefacts
+.quarto/
+_cache/
 **/rmd-outputs/
-**/.quarto/
-**/_cache/
+
+# RenV
+renv/library/
+renv/python/
+renv/staging/
