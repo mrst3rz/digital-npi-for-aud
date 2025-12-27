@@ -1,0 +1,3561 @@
+---
+title: "Meta-Analysis of Digital Neuropsychological Interventions"
+output:
+  word_document: 
+    toc: true
+    fig_width: 10
+    fig_height: 6
+    fig_caption: true
+    reference_docx: template.docx
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
+  html_document:
+    toc: true
+    fig_width: 10
+    fig_height: 6
+    fig_caption: true
+editor_options:
+  chunk_output_type: inline
+  markdown: 
+    wrap: sentence
+zotero: true
+bibliography: 
+  - references.yaml
+  - grateful-refs.bib
+---
+
+# 1. Introduction
+
+This R Markdown report contains the entire script used for the meta-analysis on digital neuropsychological interventions for patients with alcohol use disorder.
+
+It is build as an R Environment (`renv`) for managing R package versions and maximizing the reproducibility for future analyses, and all package versions are stored in the renv.lock-file.
+
+The packages needed for this report are `knitr`, `osfr`, `devtools`, `ggplot`, `robvis`, `readxl`, `openxlsx`, `dplyr`, `meta`, `grid`, and `grateful` .The `knitr` package is used for knitting the R markdown file to PDF or word.
+The next three packages are used to create a traffic plot and a summary of the risk of bias ratings.
+The `robvis` package-version required, is the latest developer-version, as this will display study labels horizontally.
+The `readxl` and `openxlsx` packages are used for reading and opening the Excel data set, whereas the `dplyr` package is used for transforming and preparing the data for the analyses.
+All the effect sizes are calculated using the `meta` package, and forest and funnel plots are generated using this package as well.
+The `grid` package, is used to add additional statistics to the plots that are not standard for the `meta` package.
+Finally, to document all the packages used and the corresponding versions, we used the `grateful` package to create a summary and a list of references for each of the used packages in this analysis report.
+
+The full R analysis environment, including all scripts and supporting files, is available in the following public GitHub repository: <https://github.com/mrst3rz/digital-ct-for-aud>
+
+## 1.1 Loading and installing the packages
+
+To prepare the R environment for the analyses, we first need to install the required packages.
+
+```{r package-setup, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# List of required CRAN packages
+packages_required <- c("osfr", "rmarkdown", "knitr", "readxl", "openxlsx", "dplyr", "meta", 
+                        "grid", "devtools", "tidyr", "tidyverse", "ggplot2", "grateful")
+
+# Function to install missing CRAN packages
+install_if_missing <- function(pkg) {
+  if (!requireNamespace(pkg, quietly = TRUE)) {
+    install.packages(pkg)
+  }
+}
+
+# Install all missing CRAN packages
+invisible(sapply(packages_required, install_if_missing))
+
+# Load all the packages
+invisible(lapply(packages_required, library, character.only = TRUE))
+
+# Install robvis from GitHub to display study labels horizontally
+if (!requireNamespace("robvis", quietly = TRUE)) {
+  devtools::install_github("mcguinlu/robvis")
+}
+
+# Load latest robvis-version
+library(robvis)
+```
+
+A snapshot of the R environment can be performed, after the packages have been installed by running renv::snapshot.
+
+```{r snapshot-renv, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# Snapshot the environment
+renv::snapshot(prompt = FALSE)
+```
+
+```{r knitr-setup, message=FALSE, warning=FALSE, include=FALSE}
+# Set the global knitr-settings for the present R markdown document
+knitr::opts_chunk$set(
+	message = FALSE,
+	warning = FALSE,
+	include = TRUE
+)
+```
+
+```{r osf-auth-setup, echo=FALSE, message=FALSE, warning=FALSE, include=FALSE}
+# Load the OSF token
+osf_auth()
+```
+
+First we load the project data from the online repository OSF, which is done with the package `osfr`.
+This can be skipped, if the data has already been stored locally.
+A token for accessing the project data is needed during the embargo period.
+
+```{r osf-proj-load, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Get the OSF project node
+osf_proj <- osf_retrieve_node("9xtsq")
+
+# List all folders inside the project
+osf_folders <- osf_ls_files(osf_proj, type = "folder")
+
+# First, get the folder named "Risk of bias data"
+osf_rob_folder <- osf_folders %>%
+  filter(name == "Risk of bias data") %>%
+  pull(id)
+
+# Then, get the folder named "Clinical outcome data"
+osf_clinical_folder <- osf_folders %>%
+  filter(name == "Clinical outcome data") %>%
+  pull(id)
+
+# Retrieve both folders using osf_retrieve_file
+osf_rob_folder <- osf_retrieve_file(osf_rob_folder)
+osf_clinical_folder <- osf_retrieve_file(osf_clinical_folder)
+
+# List files inside the folders
+osf_rob_files <- osf_ls_files(osf_rob_folder)
+osf_clinical_files <- osf_ls_files(osf_clinical_folder)
+
+# Filter and download the desired Excel file on risk of bias data
+osf_rob_files <- osf_rob_files %>%
+  filter(name == "Risk of Bias Data.csv") %>%
+  osf_download(path = tempdir(), conflicts = "overwrite")
+
+# Filter and download the desired Excel file on clinical outcomes
+osf_clinical_files <- osf_clinical_files %>%
+  filter(name == "Extracted Clinical Outcome Data.xlsx") %>%
+  osf_download(path = tempdir(), conflicts = "overwrite")
+```
+
+## 1.3 Importing risk of bias data
+
+Before conducting the meta-analyses, we want to create two plots for the risk of bias (RoB) assessments for the included studies.
+We used the revised version of the risk of bias tool (RoB 2), and the plots adhere to the domains specified by @sterne2019.
+
+The first step to display the risk of bias results, requires that a separate data set is imported, and as this file is formatted as a csv-file, we can use the readr-package.
+
+```{r import-rob, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Importing csv-file containing the RoB data set
+rob_d <- read.csv(osf_rob_files$local_path, sep = ",", header = TRUE)
+```
+
+## 1.4 Displaying the risk of bias
+
+After the data set has been imported, we can create the traffic light plot using the function called rob_traffic_light(), which will display the individual ratings for each domain for each of the included studies.
+
+```{r traffic-plot, echo=TRUE, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Traffic plot of individual risk of bias ratings"}
+# Create a traffic plot displaying individual bias ratings
+rob_traffic_light(rob_d, tool = "ROB2", psize = 7)
+```
+
+To display the summary of risk of bias across the domains including the overall risk of bias, we can create a new bar plot using the rob_summary() function.
+To begin with we set the weighted parameter to FALSE, as we will calculate the weights at the end of the report.
+
+```{r rob-summary, fig.height=6, fig.width=10, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Summary of risk of bias ratings"}
+# Create a summary (bar plot) of risk of bias assessments
+rob_summary(rob_d, tool = "ROB2", weighted = FALSE) # weighted bar plot will be created later
+```
+
+# 2. Main analyses on short-term outcomes
+
+Now that the required libraries have been installed and loaded, we can initiate the main analyses.
+For this first part of our main analysis, we import the excel-dataset "Extracted Clinical Outcome Data".
+
+## 2.1 Short-term abstinence
+
+As we are starting with our main outcome of abstinence, we only need to import the first sheet of the dataset named "Abstinence".
+These analyses will also be performed on the short-term effects, which means that we will need to filter the time point to "0-3 months".
+
+```{r importing-abs-3m-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Import data on abstinence as "abs_d" and preserve original order of studies
+abs_d <- read_excel(osf_clinical_files$local_path, sheet = "Abstinence") %>%
+  mutate(row_id = row_number())
+```
+
+### 2.1.1 Conversion of continuous and categorical variables
+
+We have identified two studies @grieder2022 and @stein2023, who both reported percentage of days abstinent (PDA), which we can include in our analyses by converting the continuous outcomes to the natural logarithm of the odds ratio (lnOR) using the formula proposed by @chinn2000:
+
+$$
+{\ln}OR=SMD\frac{\pi}{\sqrt3}
+$$
+
+Furthermore, we are able to convert our dichotomous outcomes on abstinence, when we have the lnOR, the Chinn-formula can be used to convert these values to SMDs:
+
+$$
+SMD={\ln}OR\frac{\sqrt3}{\pi}
+$$
+
+These two functions can be defined for easier conversions of the effect sizes as we proceed with the analyses, and for simplicity we define their respective factors (Chinn-factor).
+
+```{r defining-chinn-factor, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Chinn-factor for converting standard error (SE) of SMD to SE of lnOR
+chinn_smd_to_lnor <- (pi / sqrt (3))
+
+# Chinn-factor for converting SE of lnOR to SE of SMD
+chinn_lnor_to_smd <- (sqrt(3) / pi)
+```
+
+### 2.1.2 Calculation of effect sizes for continuous outcomes
+
+As the main analyses only include the outcomes reported after 0-3 months, we first need to filter the dataset and store it as a new subset.
+
+```{r abs-3m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 0–3 month data first and store it as a new subset
+abs_d_3m <- abs_d %>% filter(time_point == "0-3 months")
+```
+
+The calculation of effect sizes will be done by the inbuilt functions in the `meta` package [@balduzzi2019], so for the continuous variables, we will use the metacont() function, whereas for the categorical variables, we will use the metabin() function.
+As these two functions need to be run separately, we will need to filter the studies, who report on PDA, and define it as a subset of our data.
+The studies who do not report on PDA and only dichotomous outcomes, are also filtered and stored as a subset.
+This can be achieved by filtering studies, which have no empty cells for the "e_abs_trans_mean" columns, and for storing categorical variables, we can impose the opposite filtering rule.
+
+```{r abs-3m-dtype-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter studies with PDA and store it as a new dataset
+abs_d_cont_3m <- abs_d_3m %>% filter(!is.na(e_abs_trans_mean))
+
+# Filter studies only with dichotomous outcomes and store it as a new dataset
+abs_d_cat_3m <- abs_d_3m %>% filter(is.na(e_abs_trans_mean))
+```
+
+Now it is possible to calculate the standard mean differences (SMDs) for the studies reporting PDA by using metacont().
+We apply the small study correction using Hedge's *g*, as the study by @grieder2022 included a small sample size.
+Furthermore, we apply the restricted maximum likelihood (REML) and random modelling will be used for our meta-analysis.
+
+```{r abs-3m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+abs_metacont_3m <- metacont(
+  n.e = e_n,
+  mean.e = e_abs_trans_mean,
+  sd.e = e_abs_trans_sd,
+  n.c = c_n,
+  mean.c = c_abs_trans_mean,
+  sd.c = c_abs_trans_sd,
+  studlab = study,
+  data = abs_d_cont_3m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+After we have calculated the SMDs, we can create a new dataset or data frame and store these values alongside with the other relevant variables (e.g., time point, number of abstinents, etc.) from our original dataset.
+We will extract the SMD, the standard error (SE) and the 95% confidence interval (CI).
+
+```{r abs-3m-predata, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+abs_d_sumcont_3m <- data.frame(
+  row_id = abs_d_cont_3m$row_id,
+  study = abs_metacont_3m$studlab,
+  time_point = abs_d_cont_3m$time_point,
+  system = abs_d_cont_3m$system,
+  intervention = abs_d_cont_3m$intervention,
+  total_n = abs_d_cont_3m$e_n + abs_d_cont_3m$c_n, # Calculating total number of participants
+  c_n = abs_d_cont_3m$c_n,
+  c_abs = NA,
+  c_non_abs = NA,
+  e_n = abs_d_cont_3m$e_n,
+  e_abs = NA,
+  e_non_abs = NA,
+  # Adding calculated SMDs to the data frame 
+  SMD = abs_metacont_3m$TE,
+  SE = abs_metacont_3m$seTE,
+  LCI = abs_metacont_3m$lower,
+  UCI = abs_metacont_3m$upper,
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+The SMDs for the two studies can now be converted to lnOR using the pre-defined Chinn-factor, and alongside them, we can exponentiate these values to obtain the ORs.
+Lastly, we calculate the z- and p-values and store them in the final data frame for the two studies.
+
+```{r abs-3m-postdata, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Fetching the previously stored data frame and adding the lnORs, their SE and 95% CI
+abs_d_sumcont_3m <- abs_d_sumcont_3m %>% 
+  data.frame(
+    lnOR = abs_metacont_3m$TE * chinn_smd_to_lnor,
+    SElnOR = abs_metacont_3m$seTE * chinn_smd_to_lnor,
+    lnLCI = abs_metacont_3m$lower * chinn_smd_to_lnor,
+    lnUCI = abs_metacont_3m$upper * chinn_smd_to_lnor,
+  # Saving the ORs and its corresponding SE and 95% CI
+    OR = exp(abs_metacont_3m$TE * chinn_smd_to_lnor),
+    OrSE = exp(abs_metacont_3m$TE * chinn_smd_to_lnor) * (abs_metacont_3m$seTE * chinn_smd_to_lnor),
+    OrLCI  = exp(abs_metacont_3m$lower * chinn_smd_to_lnor),
+    OrUCI  = exp(abs_metacont_3m$upper * chinn_smd_to_lnor),
+  # Calculating the z- and p-values
+     `z-value` = (abs_metacont_3m$TE * chinn_smd_to_lnor) / (abs_metacont_3m$seTE * chinn_smd_to_lnor
+                                                          ),
+    `p-value` = 2 * (1 - pnorm(abs((abs_metacont_3m$TE * chinn_smd_to_lnor) / (abs_metacont_3m$seTE * chinn_smd_to_lnor
+                                                                                  )))),
+  # Adding a note to specify how the data was calculated
+    Notes = "Categorical variables converted from continuous outcome (metacont) using Chinn's formula",
+    check.names = FALSE
+)
+```
+
+### 2.1.3 Calculation of effect sizes for categorical outcomes
+
+The next step is to repeat the above procedure, but this time on our categorical data using metabin().
+
+```{r abs-3m-metabin, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the lnORs using metabin()
+abs_metabin_3m <- metabin(
+  event.e = e_abs,
+  n.e = e_n,
+  event.c = c_abs,
+  n.c = c_n,
+  studlab = study,
+  data = abs_d_cat_3m,
+  sm = "OR",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE,
+  incr = 0.5,
+  allstudies = TRUE
+)
+```
+
+After we have calculated the lnORs, we can create a new data frame and store these values alongside with the other relevant variables (e.g., time point, number of abstinents, etc.) from our original dataset.
+As performed for the continuous outcomes, we calculate the ORs and SMDs using the Chinn-factor.
+Finally, we add the z- and p-values to the data-frame.
+
+```{r abs-3m-predata-last, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Fetching the previously stored data frame and adding the lnORs, their SE and 95% CI
+abs_d_sumbin_3m <- data.frame(
+  row_id = abs_d_cat_3m$row_id,
+  study = abs_metabin_3m$studlab,
+  time_point = abs_d_cat_3m$time_point,
+  system = abs_d_cat_3m$system,
+  intervention = abs_d_cat_3m$intervention,
+  total_n = abs_d_cat_3m$e_n + abs_d_cat_3m$c_n,
+  c_n = abs_d_cat_3m$c_n,
+  c_abs = abs_d_cat_3m$c_abs,
+  c_non_abs = abs_d_cat_3m$c_n - abs_d_cat_3m$c_abs,
+  e_n = abs_d_cat_3m$e_n,
+  e_abs = abs_d_cat_3m$e_abs,
+  e_non_abs = abs_d_cat_3m$e_n - abs_d_cat_3m$e_abs,
+# Extracting the lnORs from the metabin results
+  lnOR = abs_metabin_3m$TE,
+  SElnOR = abs_metabin_3m$seTE,
+  lnLCI = abs_metabin_3m$lower,
+  lnUCI = abs_metabin_3m$upper,
+# Calculating the ORs from the metabin results
+  OR = exp(abs_metabin_3m$TE),
+  OrSE = exp(abs_metabin_3m$TE) * abs_metabin_3m$seTE,
+  OrLCI = exp(abs_metabin_3m$lower),
+  OrUCI = exp(abs_metabin_3m$upper),
+# Calculating the SMD, SE and 95% CI using the Chinn-function
+  SMD = abs_metabin_3m$TE * chinn_lnor_to_smd,
+  SE = abs_metabin_3m$seTE * chinn_lnor_to_smd,
+  LCI = abs_metabin_3m$lower * chinn_lnor_to_smd,
+  UCI = abs_metabin_3m$upper * chinn_lnor_to_smd,
+# Adding the z- and p-values
+  `z-value` = abs_metabin_3m$TE / abs_metabin_3m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(abs_metabin_3m$TE / abs_metabin_3m$seTE))),
+# Adding a final note on how data was converted    
+  Notes = "Continuous variables converted from categorical outcome (metabin) using Chinn's formula",
+  check.names = FALSE
+)
+```
+
+Now that the categorical data has been stored in a separate data frame, we can combine it with the data frame for continuous data for so it can be used for our meta-analysis.
+
+```{r abs-3m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the two data frames for abs and round all the values 5 decimals
+abs_d_full_3m <- bind_rows(abs_d_sumcont_3m, abs_d_sumbin_3m) %>% mutate(across(where(is.numeric), ~ round(.x, 5))) %>%
+  # Arrange the studies by their pre-defined row-numbers
+  arrange(row_id)
+```
+
+### 2.1.4 Meta-analysis of short-term effects on abstinence
+
+The short-term effects (0-3 months) on abstinence has now been calculated, and the studies with missing categorical outcomes have been converted, so our analysis now includes 12 studies.
+Before we can proceed with creating a forest plot, we need to rename the study IDs, which only purpose was differentiate different outcomes at across various time points in each of the studies.
+We start by defining new study labels.
+
+```{r define-study-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Creating study labels in accordance with APA
+study_labels <- c(
+  "1_chen_2022" = "Chen et al. (2022)",
+  "2a_uyl_2018" = "Uyl et al. (2018)",
+  "2b_uyl_2018" = "Uyl et al. (2018)",
+  "3a_dubuson_2021" = "Dubuson et al. (2021)",
+  "3c_dubuson_2021" = "Dubuson et al. (2021)",
+  "3e_dubuson_2021" = "Dubuson et al. (2021)",
+  "3d_dubuson_2021" = "Dubuson et al. (2021)",
+  "4_eberl_2013" = "Eberl et al. (2013)",
+  "5b_manning_2022" = "Manning et al. (2022)",
+  "5c_manning_2022" = "Manning et al. (2022)",
+  "5d_manning_2022" = "Manning et al. (2022)",
+  "5f_garfield_2022" = "Garfield et al. (2022)",
+  "5g_garfield_2022" = "Garfield et al. (2022)",
+  "5h_garfield_2022" = "Garfield et al. (2022)",
+  "6_grieder_2022" = "Grieder et al. (2022)",
+  "7c_garfield_2024" = "Garfield et al. (2024)",
+  "8b_kvamme_2019"   = "Kvamme et al. (2019)",
+  "9b_kumar_2019" = "Kumar et al. (2019)",
+  "9c_kumar_2019" = "Kumar et al. (2019)",
+  "10b_laurens_2023" = "Laurens et al. (2023)",
+  "10c_laurens_2023" = "Laurens et al. (2023)",
+  "11_manning_2016" = "Manning et al. (2016)",
+  "12a_peerenboom_2022" = "Peerenboom (2022)",
+  "12b_peerenboom_2022" = "Peerenboom (2022)",
+  "13a_rinck_2018" = "Rinck et al. (2018)",
+  "14a_schenkel_2023" = "Schenkel et al. (2023)",
+  "14b_schenkel_2023" = "Schenkel et al. (2023)",
+  "15a_schenkel_2024" = "Schenkel et al. (2024)",
+  "15b_schenkel_2024" = "Schenkel et al. (2024)",
+  "15c_schenkel_2024" = "Schenkel et al. (2024)",
+  "16a_schoenmakers_2010" = "Schoenmakers et al. (2010)",
+  "16b_schoenmakers_2010" = "Schoenmakers et al. (2010)",
+  "17a_stein_2023" = "Stein et al. (2023)",
+  "17b_stein_2023" = "Stein et al. (2023)",
+  "18a_wiers_2011" = "Wiers et al. (2011)",
+  "18b_wiers_2011" = "Wiers et al. (2011)",
+  "19a_spruyt_2025" = "Spruyt et al. (2025)",
+  "19b_spruyt_2025" = "Spruyt et al. (2025)",
+  "19c_spruyt_2025" = "Spruyt et al. (2025)",
+  "20a_mistarz_2025" = "Mistarz et al. (2025)",
+  "20b_mistarz_2025" = "Mistarz et al. (2025)"
+)
+```
+
+After these have been defined as values, we can assign them to our data frame on short-term effects on abstinence.
+
+```{r abs-3m-assign-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assign the new study labels to the combined data frame
+abs_d_full_3m$study <- ifelse(abs_d_full_3m$study %in% names(study_labels),
+                            study_labels[abs_d_full_3m$study],
+                            abs_d_full_3m$study)
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r abs-3m-arrange-year, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year, with the oldest first
+abs_d_full_3m <- abs_d_full_3m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+As we want to display number of events and total number of participants in each group for the individual studies in the forest plot, we need to prepare data frame with missing event data (i.e., studies reporting PDA) by defining missing values as NAs.
+
+```{r abs-3m-assign-nas, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assign NAs strings to studies with missing event data
+abs_d_full_3m <- abs_d_full_3m%>%
+  mutate(across(c(e_abs, e_non_abs, e_n, c_abs, c_non_abs, c_n), ~ ifelse(is.na(.), "NA", as.character(.))))
+```
+
+To make it clearer in the final forest plot, we assign new variable names to the two subgroups, and sort them with the subgroup with the lowest number of studies on top.
+
+```{r abs-3m-rename-subgroups, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_3m <- abs_d_full_3m %>%
+  dplyr::rename(`Cognitive system` = system) %>%
+  dplyr::mutate( # Changing the order of the two subgroups
+    `Cognitive system` = factor(`Cognitive system`,
+                      levels = c("Implicit", "Explicit"))
+    )
+```
+
+With the new subgroup names, we can pool the effects across studies and stratify by the cognitive systems targeted by the intervention used in each study.
+This is achieved by using metagen(), where we define our treatment effect (TE) as the lnOR and corresponding standard error of the treatment effect (seTE) as the SE of the lnOR.
+We apply a random effects model using REML and use a classic *z*-test.
+
+```{r abs-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_metagen_3m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_3m,
+                    subgroup = `Cognitive system`,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_metagen_3m)
+```
+
+Then we create a helper function for the calculation of the number needed to treat, which can be used for the forest plots.
+
+```{r defining-nnt, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# NNT from OR and control abstinence rate
+nnt <- function(OR, p_c) {
+  p_e <- (OR * p_c) / (1 - p_c + OR * p_c)  # experimental abstinence rate
+  risk_dif  <- p_e - p_c                           # risk difference
+  ifelse(is.na(risk_dif) | risk_dif == 0, NA, 1 / risk_dif)
+}
+```
+
+We can now calculate the baseline control risk (assumed comparator risk [ACR]) for the short-term effects by only including studies with categorical outcomes.
+
+```{r abs-3m-ctrl-risk-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Control abstinence rate risk (assumed control risk) across all studies on short-term effects
+p_c_abs_3m <- with(abs_d_sumbin_3m, sum(c_abs) / sum(c_n))
+```
+
+The test statistics for the overall pooled effect size as well as the subgroup effect sizes have now been calculated, but by default, these are not displayed in the forest plot created with the forest()-function in the meta-package.
+These values can be displayed, if we first extract the test statistics and store them as separate data-frames.
+The data frames can then be added manually to the forest plot with the grid-package.
+
+```{r abs-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_zp_overall_3m <- data.frame(
+  lnOR = abs_metagen_3m$TE.random,
+  lnOR_se = abs_metagen_3m$seTE.random,
+  NNT = round(nnt(exp(abs_metagen_3m$TE.random), p_c_abs_3m)),
+  z_value = abs_metagen_3m$statistic.random,
+  p_value = abs_metagen_3m$pval.random
+)
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_zp_subgroup_3m <- data.frame(
+  subgroup = abs_metagen_3m$bylevs,
+  lnOR = abs_metagen_3m$TE.random.w,
+  lnOR_se = abs_metagen_3m$seTE.random.w,
+  NNT = round(nnt(exp(abs_metagen_3m$TE.random.w), p_c_abs_3m)),
+  z_value = abs_metagen_3m$statistic.random.w,
+  p_value = abs_metagen_3m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-3m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each cognitive system
+abs_zp_subsplit_3m <- split(abs_zp_subgroup_3m, abs_zp_subgroup_3m$subgroup)
+```
+
+With the final preparation completed, we can plot the forest plot using the random effects model with the additional test statistics added with the grid-package.
+The forest plot uses the BMJ layout (i.e., added weights for the individual studies) and it shows the number of events (i.e., abstinents), the group size for both the intervention (i.e., Intv.) and the control group (i.e., Ctrl), OR effects for individual studies across subgroups as well as the overall effect.
+A prediction interval is added to the pooled effect sizes.
+For the heterogeneity analyses, we report the Cochran's *Q* statistic, its *p*-value as well as the measure of absolute variance using $I^2$.
+
+```{r abs-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the effects on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/30, 30),
+       at = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for implicit system
+footer_imp_abs_3m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_subsplit_3m$Implicit$z_value, 2),
+    ", p = ", formatC(abs_zp_subsplit_3m$Implicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_subsplit_3m$Implicit$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for explicit system
+footer_exp_abs_3m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_subsplit_3m$Explicit$z_value, 2),
+    ", p = ", formatC(abs_zp_subsplit_3m$Explicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_subsplit_3m$Explicit$NNT
+  )
+)
+
+footer_over_abs_3m <- paste0(
+  "Overall effect: ",
+  "z = ", round(abs_zp_overall_3m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_3m$p_value, digits = 2),
+  ", NNT ≈ ", abs_zp_overall_3m$NNT
+)
+
+# Adjust the footer for the subgroup effects after implicit subgroup
+grid.text(footer_imp_abs_3m, x = 0.079, y = 0.38,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the subgroup effects after explicit subgroup
+grid.text(footer_exp_abs_3m, x = 0.079, y = 0.2,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_3m, x = 0.079, y = 0.08,
+          just = "left", gp = gpar(fontsize = 10))
+```
+
+If we want to know the prediction intervals without outputting it to the plot, we can print them separately.
+
+```{r abs-3m-pi, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Displaying the log-transformed prediction interval (PI) from the metagen output and rounding the output
+round(
+  exp(cbind(
+    LL = abs_metagen_3m$lower.predict.w,
+    UL = abs_metagen_3m$upper.predict.w
+    )
+  ), 5
+)
+```
+
+### 2.1.5 Sensitivity analysis for short-term effects on abstinence
+
+In the main analysis, we included two studies that did not report a categorical outcome for abstinence, which can introduce measurement error and increase the heterogeneity.
+Thus, we also conduct a sensitivity analysis, where these two studies are excluded, to see how this affects the overall results.
+To achieve this, we can start by filtering out these two studies by the study label in our previously defined data frame.
+
+```{r abs-3m-sens-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Exclude the study by Grieder and Stein and store a new data frame
+abs_d_sens_filter_3m <- abs_d_full_3m %>% 
+  filter(!study %in% c("Grieder et al. (2022)", "Stein et al. (2023)"))
+```
+
+We want to re-arrange the study labels in alphabetical order rather then by the pre-defined row numbers.
+
+```{r abs-3m-sens-arrange, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year
+abs_d_sens_filter_3m <- abs_d_sens_filter_3m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+Now that the data set has been filtered, we can run the metagen()-function again, this time with our filtered data frame.
+We still want to run the analysis stratified by the previously defined subgroups.
+
+```{r abs-3m-sens-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems
+abs_sens_metagen_3m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_sens_filter_3m,
+                    subgroup = `Cognitive system`,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_sens_metagen_3m)
+```
+
+The test statistics for the newly calculated effect sizes can now be extracted, and prepared for our forest plot.
+
+```{r abs-3m-sens-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_zp_sens_over_3m <- data.frame(
+  lnOR = abs_sens_metagen_3m$TE.random,
+  lnOR_se = abs_sens_metagen_3m$seTE.random,
+  NNT = round(nnt(exp(abs_sens_metagen_3m$TE.random), p_c_abs_3m)),
+  z_value = abs_sens_metagen_3m$statistic.random,
+  p_value = abs_sens_metagen_3m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_zp_sens_sub_3m <- data.frame(
+  subgroup = abs_sens_metagen_3m$bylevs,
+  lnOR = abs_sens_metagen_3m$TE.random.w,
+  lnOR_se = abs_sens_metagen_3m$seTE.random.w,
+  NNT = round(nnt(exp(abs_sens_metagen_3m$TE.random.w), p_c_abs_3m)),
+  z_value = abs_sens_metagen_3m$statistic.random.w,
+  p_value = abs_sens_metagen_3m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-3m-sens-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each cognitive system
+abs_zp_sens_subsplit_3m <- split(abs_zp_sens_sub_3m, abs_zp_sens_sub_3m$subgroup)
+```
+
+Now with the extracted test statistics, we can now plot the results of the sensitivity analysis and add additional information using the grid-package.
+We use the same layout and measures for heterogeneity, which was used for our unadjusted analysis.
+
+```{r abs-3m-sens-forest, fig.height=7, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the sensitivity analysis on abstinence"}
+# Forest plot for sensitivity analysis
+forest(abs_sens_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/30, 30),
+       at = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+  # Right side: default BMJ columns
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for implicit system
+footer_imp_abs_sens_3m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_sens_subsplit_3m$Implicit$z_value, 2),
+    ", p = ", formatC(abs_zp_sens_subsplit_3m$Implicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_sens_subsplit_3m$Implicit$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for explicit system
+footer_exp_abs_sens_3m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_sens_subsplit_3m$Explicit$z_value, 2),
+    ", p = ", formatC(abs_zp_sens_subsplit_3m$Explicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_sens_subsplit_3m$Explicit$NNT
+  )
+)
+
+footer_over_sens_abs_3m <- paste0(
+  "Overall effect: ",
+  "z = ", round(abs_zp_sens_over_3m$z_value, 2),
+  ", p = ", formatC(abs_zp_sens_over_3m$p_value, digits = 2),
+  ", NNT ≈ ", abs_zp_sens_over_3m$NNT
+)
+
+# Adjust the footer for the subgroup effects after implicit subgroup
+grid.text(footer_imp_abs_sens_3m, x = 0.079, y = 0.4,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the subgroup effects after explicit subgroup
+grid.text(footer_exp_abs_sens_3m, x = 0.079, y = 0.19,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_sens_abs_3m, x = 0.079, y = 0.05,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+```{r abs-3m-sens-pi, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Displaying the log-transformed prediction interval (PI) from the metagen output and rounding the output
+round(
+  exp(cbind(
+    LL = abs_sens_metagen_3m$lower.predict.w,
+    UL = abs_sens_metagen_3m$upper.predict.w
+    )
+  ), 5
+)
+```
+
+### 2.1.6 Publication bias for short-term effects on abstinence
+
+The final step for the main analyses on abstinence, is to assess the publication bias of the included studies.
+We do this by conducting a meta-analysis once more, but this time we use the metagen()-function without stratifying for the cognitive systems.
+We use the previously stored data frame combining categorical and continuous outcomes, and set the treatment effect to lnOR and the standard error of the treatment effect to SElnOR.
+
+```{r abs-3m-publication-bias, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run meta-analysis without stratifying for subgroups
+abs_pupbias_3m <- metagen(TE = lnOR,
+                         seTE = SElnOR,
+                         studlab = study,
+                         sm = "OR",
+                         method.tau = "REML",
+                         data = abs_d_full_3m)
+
+# Print the results of the meta-analysis without subgroups
+print(abs_pupbias_3m)
+```
+
+As we want to both be able to visually inspect our plot for asymmetry as well as having a method of quantifying publication bias, we first want to conduct an Egger's test, which can be added to the final funnel plot.
+
+```{r abs-3m-eggers-test, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Conduct an Egger's test using the previously calculated treatment effects
+abs_egger_3m <- metabias(abs_pupbias_3m, method.bias = "Egger")
+
+# Print the test results of the Egger's test
+print(abs_egger_3m)
+```
+
+Now with the results from the Egger's test, we can now create the funnel plot using the meta-package inbuilt function funnel() and exponentiate the lnOR values to have the x-axis displaying ORs instead.
+We can add the test statistic from the Egger's test to the funnel plot using mtext().
+
+```{r abs-3m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot for studies on short-term effects on abstinence"}
+# Create a funnel plot using the newly stored data frame
+funnel(abs_pupbias_3m,
+       xlab = "Odds Ratio",
+       studlab = TRUE,
+       backtransf = TRUE,
+       pch = 17,
+       cex = 1)
+
+# Add Egger's test statistic to the plot
+abs_egger_text_3m <- paste0("Egger's test: p = ", 
+                     round(abs_egger_3m$p.value, 3))
+
+# Define the actual placement of the statistics on the funnel plot
+mtext(abs_egger_text_3m, side=3, line=0.5, adj=0, cex=0.9, col="black")
+```
+
+## 2.2 Short-term alcohol reduction
+
+The first part of the main analysis was on our primary outcome abstinence, now we can turn to analyzing our secondary outcome on alcohol reduction.
+We still need to use the excel-dataset "Extracted Clinical Outcome Data", but this time we import the sheet named "Reduction" and assign row numbers for an easier sorting of the studies.
+
+```{r importing-red-3m-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Import data on abstinence as "abs_d" and preserve original order of studies
+red_d <- read_excel(osf_clinical_files$local_path, sheet = "Reduction") %>%
+  mutate(row_id = row_number())
+```
+
+### 2.2.1 Calculation of effect sizes for continuous outcomes
+
+For the main analysis on alcohol reduction, we still want to focus on the time point "0-3 months", so we filter the data set by time point and re-arrange the studies in terms of alphabetical order.
+
+```{r red-3m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 0–3 month data and arrange specific studies first
+red_d_3m <- red_d %>%
+  filter(time_point == "0-3 months")
+```
+
+As we only have continuous data for alcohol reduction, we only need to run the metacont() on our dataset to calculate the SMDs using Hedge's *g* correction.
+
+```{r red-3m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+red_metacont_3m <- metacont(
+  n.e = e_n,
+  mean.e = e_reduc_mean,
+  sd.e = e_reduc_sd,
+  n.c = c_n,
+  mean.c = c_reduc_mean,
+  sd.c = c_reduc_sd,
+  studlab = study,
+  data = red_d_3m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+Now we can combine the calculated effect sizes and add them to the original data set without changing the original variable names.
+
+```{r red-3m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+red_d_full_3m <- data.frame(
+  row_id = red_d_3m$row_id,
+  study = red_metacont_3m$studlab,
+  time_point = red_d_3m$time_point,
+  system = red_d_3m$system,
+  intervention = red_d_3m$intervention,
+  total_n = red_d_3m$e_n + red_d_3m$c_n, # Calculating total number of participants
+  c_n = red_d_3m$c_n,
+  c_reduc_mean = red_d_3m$c_reduc_mean,
+  c_reduc_sd = red_d_3m$c_reduc_sd,
+  e_n = red_d_3m$e_n,
+  e_reduc_mean = red_d_3m$e_reduc_mean,
+  e_reduc_sd = red_d_3m$e_reduc_sd,
+  # Adding calculated SMDs to the data frame 
+  SMD = red_metacont_3m$TE,
+  SE = red_metacont_3m$seTE,
+  LCI = red_metacont_3m$lower,
+  UCI = red_metacont_3m$upper,
+  # Adding the z- and p-values
+  `z-value` = red_metacont_3m$TE / red_metacont_3m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(red_metacont_3m$TE / red_metacont_3m$seTE))),
+  # Adding a final note on how data was converted    
+  Notes = "Calculated using metacont()",
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+### 2.2.2 Meta-analysis of short-term effects on alcohol reduction
+
+After we have calculated the effect sizes and added them to the original data set, we can now assign the previously defined study labels to the data set.
+
+```{r red-3m-assign-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assign the new study labels to the combined data frame
+red_d_full_3m$study <- ifelse(red_d_full_3m$study %in% names(study_labels),
+                            study_labels[red_d_full_3m$study],
+                            red_d_full_3m$study)
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r red-3m-arrange-year, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year, with the oldest first
+red_d_full_3m <- red_d_full_3m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+It is now possible to run the meta-analysis for alcohol reduction using the metagen() function, setting the Hedges *g* correction for the SMD and REML for the heterogeneity analysis.
+However, as no study examined the effects of explicit interventions on alcohol reduction, we do not apply stratification by subgroups.
+
+```{r red-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+red_metagen_3m <- metagen(TE = SMD,
+                    seTE = SE,
+                    studlab = study,
+                    data = red_d_full_3m,
+                    sm = "SMD",
+                    method.smd = "Hedges",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(red_metagen_3m)
+```
+
+The test statistics can now be extracted from the meta-analysis and stored as a data frame for the forest plot.
+
+```{r red-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+red_zp_over_3m <- data.frame(
+  SMD = red_metagen_3m$TE.random,
+  SE = red_metagen_3m$seTE.random,
+  z_value = red_metagen_3m$statistic.random,
+  p_value = red_metagen_3m$pval.random
+)
+```
+
+With the test statistics stored as a data frame, we now turn to creating the forest plot, which follows the same design as previously used for abs, however, no subgroup labels will be present, as only effects of cognitive bias modification programs on reduction was examined by the identified studies.
+
+```{r red-3m-forest, fig.height=6, fig.width=11, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of effects on alcohol reduction"}
+# Now plot the forest plot again with new subgroup names
+forest(red_metagen_3m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_reduc_mean", "e_reduc_sd", "c_n", "c_reduc_mean",
+                    "c_reduc_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD", 
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+
+# Add a footer combining the test statistics for the overall effect
+footer_over_red_3m <- paste0(
+  "Overall effect: ",
+  paste0(
+    "z = ", round(red_zp_over_3m$z_value, 2),
+    ", p = ", formatC(red_zp_over_3m$p_value, digits = 2),
+    collapse = "; "
+  )
+)
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_red_3m, x = 0.0385, y = 0.25,
+          just = "left", gp = gpar(fontsize = 9))
+```
+
+### 2.2.3 Publication bias for short-term effects on alcohol reduction
+
+The final step for the main analyses on alcohol reduction, is to assess the publication bias of the included studies.
+We can reuse the meta-analyses conducted in the section above for the funnel plot.
+Instead, we can run a Egger's test, but due to a low number of studies, we need to set the minimum *k* to three studies.
+The results will, however, be less reliable given the small number of studies, and interpretation of the results should be cautioned.
+
+```{r red-3m-eggers-test, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Conduct an Egger's test using the previously calculated treatment effects
+red_egger_3m <- metabias(red_metagen_3m, method.bias = "Egger", k.min = 3)
+
+# Print the results of the Egger's test
+print(red_egger_3m)
+```
+
+Now with the results from the Egger's test, we can now create the funnel plot using the meta-package inbuilt function funnel().
+We can add the test statistic from the Egger's test to the funnel plot using mtext().
+
+```{r red-3m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot on studies for short-term effects on alcohol reduction"}
+# Create a funnel plot using the newly stored data frame
+funnel(red_metagen_3m,
+       xlab = "Standardised Mean Difference",
+       studlab = TRUE,
+       pch = 17,
+       cex = 1)
+
+# Add Egger's test statistic to the plot
+red_egger_text_3m <- paste0("Egger's test: p = ", 
+                     round(red_egger_3m$p.value, 3))
+
+# Define the actual placement of the statistics on the funnel plot
+mtext(red_egger_text_3m, side=3, line=0.5, adj=0, cex=0.9, col="black")
+```
+
+## 2.3 Short-term alcohol craving
+
+The final part of the main analyses will be conducted on alcohol craving.
+We still need to use the excel-dataset "Extracted Clinical Outcome Data", but this time we import the sheet named "Craving" and assign row numbers for an easier sorting of the studies.
+
+```{r importing-crav-3m-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Import data on craving and preserve original order of studies
+crav_d <- read_excel(osf_clinical_files$local_path, sheet = "Craving") %>% 
+  mutate(row_id = row_number())
+```
+
+### 2.3.1 Calculation of effect sizes for continuous outcomes
+
+For the main analysis on alcohol reduction, we still want to focus on the time point "0-3 months", so we filter the data set by time point and re-arrange the studies in terms of alphabetical order.
+
+```{r crav-3m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 0–3 month data and arrange specific studies first
+crav_d_3m <- crav_d %>%
+  filter(time_point == "0-3 months")
+```
+
+As we only have continuous data for alcohol craving, we only need to run the metacont()-function on our dataset to calculate the SMDs using Hedge's *g* correction.
+
+```{r crav-3m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+crav_metacont_3m <- metacont(
+  n.e = e_n,
+  mean.e = e_crav_mean,
+  sd.e = e_crav_sd,
+  n.c = c_n,
+  mean.c = c_crav_mean,
+  sd.c = c_crav_sd,
+  studlab = study,
+  data = crav_d_3m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+Now we can combine the calculated effect sizes and add them to the original data set without changing the original variable names.
+
+```{r crav-3m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+crav_d_full_3m <- data.frame(
+  row_id = crav_d_3m$row_id,
+  study = crav_metacont_3m$studlab,
+  time_point = crav_d_3m$time_point,
+  system = crav_d_3m$system,
+  intervention = crav_d_3m$intervention,
+  total_n = crav_d_3m$e_n + crav_d_3m$c_n, # Calculating total number of participants
+  c_n = crav_d_3m$c_n,
+  c_crav_mean = crav_d_3m$c_crav_mean,
+  c_crav_sd = crav_d_3m$c_crav_sd,
+  e_n = crav_d_3m$e_n,
+  e_crav_mean = crav_d_3m$e_crav_mean,
+  e_crav_sd = crav_d_3m$e_crav_sd,
+  # Adding calculated SMDs to the data frame 
+  SMD = crav_metacont_3m$TE,
+  SE = crav_metacont_3m$seTE,
+  LCI = crav_metacont_3m$lower,
+  UCI = crav_metacont_3m$upper,
+  # Adding the z- and p-values
+  `z-value` = crav_metacont_3m$TE / crav_metacont_3m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(crav_metacont_3m$TE / crav_metacont_3m$seTE))),
+  # Adding a final note on how data was converted    
+  Notes = "Calculated using metacont()",
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+### 2.3.2 Meta-analysis of short-term effects on alcohol craving
+
+After we have calculated the effect sizes and added them to the original data set, we can now assign the previously defined study labels to the data set.
+
+```{r crav-3m-assign-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assign the new study labels to the combined data frame
+crav_d_full_3m$study <- ifelse(crav_d_full_3m$study %in% names(study_labels),
+                            study_labels[crav_d_full_3m$study],
+                            crav_d_full_3m$study)
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r crav-3m-arrange-year, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year, with the oldest first
+crav_d_full_3m <- crav_d_full_3m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+It is now possible to run the meta-analysis for alcohol craving using the metagen() function, setting the Hedges *g* correction for the SMD and REML for the heterogeneity analysis.
+However, as no study examined the effects of explicit interventions on alcohol craving, we do not apply stratification by subgroups.
+
+```{r crav-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+crav_metagen_3m <- metagen(TE = SMD,
+                    seTE = SE,
+                    studlab = study,
+                    data = crav_d_full_3m,
+                    sm = "SMD",
+                    method.smd = "Hedges",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(crav_metagen_3m)
+```
+
+The test statistics can now be extracted from the meta-analysis and stored as a data frame for the forest plot.
+
+```{r crav-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+crav_zp_over_3m <- data.frame(
+  SMD = crav_metagen_3m$TE.random,
+  SE = crav_metagen_3m$seTE.random,
+  z_value = crav_metagen_3m$statistic.random,
+  p_value = crav_metagen_3m$pval.random
+)
+```
+
+With the test statistics stored as a data frame, we now turn to creating the forest plot, which follows the same design as previously used, however, no subgroup labels will be present, as only effects of implicit interventions on craving was examined by the identified studies.
+
+```{r crav-3m-forest, fig.height=6, fig.width=11, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects on craving"}
+# Now plot the forest plot again with new subgroup names
+forest(crav_metagen_3m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD", 
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+
+# Add a footer combining the test statistics for the overall effect
+footer_over_crav_3m <- paste0(
+  "Overall effect: ",
+  paste0(
+    "z = ", round(crav_zp_over_3m$z_value, 2),
+    ", p = ", formatC(crav_zp_over_3m$p_value, digits = 2),
+    collapse = "; "
+  )
+)
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_crav_3m, x = 0.0195, y = 0.15,
+          just = "left", gp = gpar(fontsize = 9))
+```
+
+### 2.3.3 Publication bias for short-term effects on craving
+
+The final step for the main analyses on alcohol craving, is to assess the publication bias of the included studies.
+We can reuse the meta-analyses conducted in the section above for the funnel plot.
+Instead, we need to run a Egger's test, but due to a low number of studies, we need to set the minimum *k* to eight studies.
+The results will, however, be less reliable given the small number of studies, and interpretation of the results should be cautioned.
+
+```{r crav-3m-eggers-test, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Conduct an Egger's test using the previously calculated treatment effects
+crav_egger_3m <- metabias(crav_metagen_3m, method.bias = "Egger", k.min = 8)
+
+# Print the results of the Egger's test
+print(crav_egger_3m)
+```
+
+Now with the results from the Egger's test, we can now create the funnel plot using the meta-package inbuilt function funnel().
+We can add the test statistic from the Egger's test to the funnel plot using mtext().
+As there is a high variability among these studies, we will need to adjust the limits of the x-axis so the studies can be better displayed.
+
+```{r crav-3m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot of the studies on short-term effects on craving"}
+# Calculate limits for x-axis to center the funnel
+smd_summary <- crav_metagen_3m$TE.random  # or TE.fixed if preferred
+xlim_range <- max(abs(crav_metagen_3m$TE - smd_summary)) + 0.5
+xlim <- c(smd_summary - xlim_range, smd_summary + xlim_range)
+
+# Create a funnel plot with adjusted x-axis
+funnel(crav_metagen_3m,
+       xlab = "Standardised Mean Difference",
+       studlab = TRUE,
+       pch = 17,
+       cex = 1,
+       xlim = xlim)
+
+# Add Egger's test statistic to the plot
+crav_egger_text_3m <- paste0("Egger's test: p = ", 
+                     round(crav_egger_3m$p.value, 3))
+
+# Define the actual placement of the statistics on the funnel plot
+mtext(crav_egger_text_3m, side=3, line=0.5, adj=0, cex=0.9, col="black")
+```
+
+# 3. Main analyses on intermediate-term outcomes
+
+The second part of the main analyses will be conducted on the intermediate time points.
+Intermediate effects will consist of studies examining intervention effects six months after discharge.
+We still use the excel-dataset "Extracted Clinical Outcome Data", but this time we will only be filtering the data sheets by time point for the calculation of effect sizes and not when conducting the meta-analyses
+
+## 3.1 Intermediate-term abstinence
+
+The first part be conducted on our primary outcome of abstinence, and we calculate the effect sizes for the intermediate-term time point.
+
+### 3.1.1 Calculation of effect sizes for intermediate categorical variables
+
+We want to follow the procedure of converting the continuous variables to categorical outcomes and in opposite direction as mentioned previously and to begin with we only do this for the intermediate time point.
+
+```{r abs-6m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 6 month data first and store it as a new subset
+abs_d_6m <- abs_d %>% filter(time_point == "6 months")
+```
+
+The calculation of effect sizes will be done by the inbuilt functions in the meta-package, so for the categorical variables, we will use the metabin() function.
+
+```{r abs-6m-metabin, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the lnORs using metabin()
+abs_metabin_6m <- metabin(
+  event.e = e_abs,
+  n.e = e_n,
+  event.c = c_abs,
+  n.c = c_n,
+  studlab = study,
+  data = abs_d_6m,
+  sm = "OR",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE,
+  incr = 0.5,
+  allstudies = TRUE
+)
+```
+
+After we have calculated the lnORs, we can create a new data frame and store these values alongside with the other relevant variables (e.g., time point, number of abstinents, etc.) from our original dataset.
+As performed previously, we calculate the ORs and SMDs using the Chinn-factor.
+Finally, we add the z- and p-values to the data-frame.
+
+```{r abs-6m-combined-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Fetching the previously stored data frame and adding the lnORs, their SE and 95% CI
+abs_d_full_6m <- data.frame(
+  row_id = abs_d_6m$row_id,
+  study = abs_metabin_6m$studlab,
+  time_point = abs_d_6m$time_point,
+  system = abs_d_6m$system,
+  intervention = abs_d_6m$intervention,
+  total_n = abs_d_6m$e_n + abs_d_6m$c_n,
+  c_n = abs_d_6m$c_n,
+  c_abs = abs_d_6m$c_abs,
+  c_non_abs = abs_d_6m$c_n - abs_d_6m$c_abs,
+  e_n = abs_d_6m$e_n,
+  e_abs = abs_d_6m$e_abs,
+  e_non_abs = abs_d_6m$e_n - abs_d_6m$e_abs,
+# Extracting the lnORs from the metabin results
+  lnOR = abs_metabin_6m$TE,
+  SElnOR = abs_metabin_6m$seTE,
+  lnLCI = abs_metabin_6m$lower,
+  lnUCI = abs_metabin_6m$upper,
+# Calculating the ORs from the metabin results
+  OR = exp(abs_metabin_6m$TE),
+  OrSE = exp(abs_metabin_6m$TE) * abs_metabin_6m$seTE,
+  OrLCI = exp(abs_metabin_6m$lower),
+  OrUCI = exp(abs_metabin_6m$upper),
+# Caculating the SMD, SE and 95% CI using the Chinn-function
+  SMD = abs_metabin_6m$TE * chinn_lnor_to_smd,
+  SE = abs_metabin_6m$seTE * chinn_lnor_to_smd,
+  LCI = abs_metabin_6m$lower * chinn_lnor_to_smd,
+  UCI = abs_metabin_6m$upper * chinn_lnor_to_smd,
+# Adding the z- and p-values
+  `z-value` = abs_metabin_6m$TE / abs_metabin_6m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(abs_metabin_6m$TE / abs_metabin_6m$seTE))),
+# Adding a final note on how data was converted    
+  Notes = "Continuous variables converted from categorical outcome (metabin) using Chinn's formula",
+  check.names = FALSE
+)
+```
+
+We want to have the APA author labels rather than study IDs.
+
+```{r abs-6m-assign-labels}
+# Assign the new study labels to the combined data frame
+abs_d_full_6m$study <- ifelse(abs_d_full_6m$study %in% names(study_labels),
+                            study_labels[abs_d_full_6m$study],
+                            abs_d_full_6m$study)
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r abs-6m-arrange-year, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year, with the oldest first
+abs_d_full_6m <- abs_d_full_6m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+To make it clearer in the final forest plot, we assign new variable names to the two subgroups, and sort them with the subgroup with the lowest number of studies on top.
+
+```{r abs-6m-rename-subgroups, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_6m <- abs_d_full_6m %>%
+  dplyr::rename(`Cognitive system` = system) %>%
+  dplyr::mutate( # Changing the order of the two subgroups
+    `Cognitive system` = factor(`Cognitive system`,
+                      levels = c("Implicit", "Explicit"))
+    )
+```
+
+With the new subgroup names, we can pool the effects across studies and stratify by the cognitive systems targeted by the intervention used in each study.
+This is achieved by using metagen(), where we define our treatment effect (TE) as the lnOR and corresponding standard error of the treatment effect (seTE) as the SE of the lnOR.
+We apply a random effects model using REML and use a classic *z*-test.
+
+```{r abs-6m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_metagen_6m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_6m,
+                    subgroup = `Cognitive system`,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_metagen_6m)
+```
+
+We can now calculate the baseline control risk for the intermediate-term effects by only including studies with categorical outcomes.
+
+```{r abs-6m-ctrl-abs-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Abstinence rate risk difference across all studies on short-term effects
+p_c_abs_6m <- with(abs_d_full_6m, sum(c_abs) / sum(c_n))
+```
+
+### 3.1.2 Meta-analysis of intermediate-term effects on abstinence
+
+The test statistics for the overall pooled effect size as well as the subgroup effect sizes have now been calculated, but by default, these are not displayed in the forest plot created with the forest()-function in the meta-package.
+These values can be displayed, if we first extract the test statistics and store them as separate data-frames.
+The data frames can then be added manually to the forest plot with the grid-package.
+
+```{r abs-6m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_zp_overall_6m <- data.frame(
+  lnOR = abs_metagen_6m$TE.random,
+  lnOR_se = abs_metagen_6m$seTE.random,
+  NNT = round(nnt(exp(abs_metagen_6m$TE.random), p_c_abs_6m)),
+  z_value = abs_metagen_6m$statistic.random,
+  p_value = abs_metagen_6m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_zp_subgroup_6m <- data.frame(
+  subgroup = abs_metagen_6m$bylevs,
+  lnOR = abs_metagen_6m$TE.random.w,
+  lnOR_se = abs_metagen_6m$seTE.random.w,
+  NNT = round(nnt(exp(abs_metagen_6m$TE.random.w), p_c_abs_6m)),
+  z_value = abs_metagen_6m$statistic.random.w,
+  p_value = abs_metagen_6m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-6m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each cognitive system
+abs_zp_subsplit_6m <- split(abs_zp_subgroup_6m, abs_zp_subgroup_6m$subgroup)
+```
+
+With the final preparation completed, we can plot the forest plot using the random effects model with the additional test statistics added with the grid-package.
+The forest plot uses the BMJ layout (i.e., added weights for the individual studies) and it shows the number of events (i.e., abstinents), the group size for both the intervention (i.e., Intv.) and the control group (i.e., Ctrl), OR effects for individual studies across subgroups as well as the overall effect.
+A prediction interval is added to the pooled effect sizes.
+For the heterogeneity analyses, we report the Cochran's *Q* statistic, its *p*-value as well as the measure of absolute variance using $I^2$.
+
+```{r abs-6m-forest, fig.height=6, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the effects on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_metagen_6m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/30, 30),
+       at = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+  # Right side: default BMJ columns
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for implicit system
+footer_imp_abs_6m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_zp_subsplit_6m$Implicit$z_value, 2),
+    ", p = ", formatC(abs_zp_subsplit_6m$Implicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_subsplit_6m$Implicit$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for explicit system
+footer_exp_abs_6m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_subsplit_6m$Explicit$z_value, 2),
+    ", p = ", formatC(abs_zp_subsplit_6m$Explicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_subsplit_6m$Explicit$NNT
+  )
+)
+
+footer_over_abs_6m <- paste0(
+  "Overall effect: ",
+  "z = ", round(abs_zp_overall_6m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_6m$p_value, digits = 2),
+  ", NNT ≈ ", abs_zp_overall_6m$NNT
+)
+
+# Adjust the footer for the subgroup effects after implicit subgroup
+grid.text(footer_imp_abs_6m, x = 0.094, y = 0.470,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the subgroup effects after explicit subgroup
+grid.text(footer_exp_abs_6m, x = 0.094, y = 0.230,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_6m, x = 0.094, y = 0.060,
+          just = "left", gp = gpar(fontsize = 10))
+```
+
+If we want to know the prediction intervals without outputting it to the plot, we can print them separately.
+
+```{r abs-6m-pi, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Displaying the log-transformed prediction interval (PI) from the metagen output and rounding the output
+round(
+  exp(cbind(
+    LL = abs_metagen_6m$lower.predict.w,
+    UL = abs_metagen_6m$upper.predict.w
+    )
+  ), 5
+)
+```
+
+### 3.1.3 Publication bias for intermediate effects on abstinence
+
+To assess for potential publication bias , we need to create a funnel plot for the studies assessing the intermediate effects.
+Before the funnel plot can be created, we will be changing the author names to fit the APA-format using the previously defined study labels.
+
+```{r abs-6m-pub-labels}
+# Assign the new study labels to the data frame
+abs_d_full_6m$study <- ifelse(abs_d_full_6m$study %in% names(study_labels),
+                            study_labels[abs_d_full_6m$study],
+                            abs_d_full_6m$study)
+```
+
+After defining the new labels, we can run a separate meta-analysis on the intermediate time point.
+
+```{r abs-6m-pub-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_metagen_6m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_6m,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE)
+```
+
+Now we can run an Egger's test, but due to a low number of studies, we need to set the minimum *k* to four studies.
+The results will, however, be less reliable given the small number of studies, and interpretation of the results should be cautioned.
+
+```{r abs-6m-eggers-test, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Conduct an Egger's test using the previously calculated treatment effects
+abs_egger_6m <- metabias(abs_metagen_6m, method.bias = "Egger", k.min = 4)
+
+# Print the results of the Egger's test
+print(abs_egger_6m)
+```
+
+Now with the results from the Egger's test, we can now create the funnel plot using the meta-package inbuilt function funnel().
+We can add the test statistic from the Egger's test to the funnel plot using mtext().
+As there is a high variability among these studies, we will need to adjust the limits of the x-axis so the studies can be better displayed.
+
+```{r abs-6m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot for studies with intermediate effects on abstinence"}
+# Create a funnel plot with adjusted x-axis
+funnel(abs_metagen_6m,
+       xlab = "Odds ratio",
+       studlab = TRUE,
+       pch = 17,
+       cex = 1)
+
+# Add Egger's test statistic to the plot
+abs_egger_text_6m <- paste0("Egger's test: p = ", 
+                     round(abs_egger_6m$p.value, 3))
+
+# Define the actual placement of the statistics on the funnel plot
+mtext(abs_egger_text_6m, side=3, line=0.5, adj=0, cex=0.9, col="black")
+```
+
+## 3.2 Intermediate-term alcohol reduction
+
+The second part of our analyses will be conducted on our secondary outcome of alcohol reduction, and we calculate the effect sizes for the intermediate-term time point.
+
+### 3.2.1 Calculation of effect sizes for intermediate-term continuous variables
+
+We want to follow the procedure of as above and filter the data by the time point "6 months".
+
+```{r red-6m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 6 month data first and store it as a new subset
+red_d_6m <- red_d %>% filter(time_point == "6 months")
+```
+
+As we only have continuous data for alcohol reduction, we only need to run the metacont() on our dataset to calculate the SMDs using Hedge's *g* correction.
+
+```{r red-6m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+red_metacont_6m <- metacont(
+  n.e = e_n,
+  mean.e = e_reduc_mean,
+  sd.e = e_reduc_sd,
+  n.c = c_n,
+  mean.c = c_reduc_mean,
+  sd.c = c_reduc_sd,
+  studlab = study,
+  data = red_d_6m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+Now we can combine the calculated effect sizes and add them to the original data set without changing the original variable names.
+
+```{r red-6m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+red_d_full_6m <- data.frame(
+  row_id = red_d_6m$row_id,
+  study = red_metacont_6m$studlab,
+  time_point = red_d_6m$time_point,
+  system = red_d_6m$system,
+  intervention = red_d_6m$intervention,
+  total_n = red_d_6m$e_n + red_d_6m$c_n, # Calculating total number of participants
+  c_n = red_d_6m$c_n,
+  c_reduc_mean = red_d_6m$c_reduc_mean,
+  c_reduc_sd = red_d_6m$c_reduc_sd,
+  e_n = red_d_6m$e_n,
+  e_reduc_mean = red_d_6m$e_reduc_mean,
+  e_reduc_sd = red_d_6m$e_reduc_sd,
+  # Adding calculated SMDs to the data frame 
+  SMD = red_metacont_6m$TE,
+  SE = red_metacont_6m$seTE,
+  LCI = red_metacont_6m$lower,
+  UCI = red_metacont_6m$upper,
+  # Adding the z- and p-values
+  `z-value` = red_metacont_6m$TE / red_metacont_6m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(red_metacont_6m$TE / red_metacont_6m$seTE))),
+  # Adding a final note on how data was converted    
+  Notes = "Calculated using metacont()",
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+To use the same author labels in APA-format across all studies and sub-studies, we need to apply the previously defined study labels to our integrated data set.
+
+```{r red-6m-assign-labels}
+# Assign the new study labels to the combined data frame
+red_d_full_6m$study <- ifelse(red_d_full_6m$study %in% names(study_labels),
+                            study_labels[red_d_full_6m$study],
+                            red_d_full_6m$study)
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r red-6m-arrange-year, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year, with the oldest first
+red_d_full_6m <- red_d_full_6m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+\### 3.2.2 Meta-analysis of intermediate-term effects on alcohol reduction
+
+Now with the newly defined subgroup labels, we can conduct the meta-analysis using metagen().
+
+```{r red-6m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+red_metagen_6m <- metagen(TE = SMD,
+                    seTE = SE,
+                    studlab = study,
+                    data = red_d_full_6m,
+                    sm = "SMD",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(red_metagen_6m)
+```
+
+Now that we have created a list for the test statistics for each of the time points, we can create the final forest plot.
+
+```{r red-6m-forest, fig.height=5, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of short-, intermediate-, and long-term effects on alcohol reduction"}
+# Now plot the forest plot again with new subgroup names
+forest(red_metagen_6m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       subgroup = FALSE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_reduc_mean", "e_reduc_sd", "c_n", "c_reduc_mean",
+                    "c_reduc_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD", 
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+
+```
+
+### 3.2.3 Publication bias for intermediate effects on alcohol reduction
+
+Though an Egger's test will not have the required statistical power, any interpretation of the results should be highly cautioned.
+However, we proceed with conducting the test and adding it to the final plot.
+
+```{r red-6m-eggers-test, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Conduct an Egger's test using the previously calculated treatment effects
+red_egger_6m <- metabias(red_metagen_6m, method.bias = "Egger", k.min = 2)
+```
+
+We can now create the funnel plot and add the result of the Egger's test.
+
+```{r red-6m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot of studies with intermediate effects on alcohol reduction"}
+# Create a funnel plot for the 6 month time point
+funnel(red_metagen_6m,
+       xlab = "Standardised Mean Difference",
+       studlab = TRUE,
+       pch = 17,
+       cex = 0.5)
+
+# Add Egger's test statistic to the plot
+red_egger_text_6m <- paste0("Egger's test: p = ", 
+                     round(red_egger_6m$p.value, 3))
+
+# Define the actual placement of the statistics on the funnel plot
+mtext(red_egger_text_6m, side=3, line=0.5, adj=0, cex=0.9, col="black")
+```
+
+## 3.3 Intermediate-term craving
+
+The second part of our analyses will be conducted on our secondary outcome of craving, and we calculate the effect sizes for the intermediate-term time point.
+
+### 3.3.1 Calculation of effect sizes for intermediate-term continuous variables
+
+We want to follow the procedure of as above and filter the data by the time point "6 months".
+
+```{r crav-6m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 6 month data first and store it as a new subset
+crav_d_6m <- crav_d %>% filter(time_point == "6 months")
+```
+
+As we only have continuous data for alcohol reduction, we only need to run the metacont() on our dataset to calculate the SMDs using Hedge's *g* correction.
+
+```{r crav-6m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+crav_metacont_6m <- metacont(
+  n.e = e_n,
+  mean.e = e_crav_mean,
+  sd.e = e_crav_sd,
+  n.c = c_n,
+  mean.c = c_crav_mean,
+  sd.c = c_crav_sd,
+  studlab = study,
+  data = crav_d_6m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+Now we can combine the calculated effect sizes and add them to the original data set without changing the original variable names.
+
+```{r crav-6m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+crav_d_full_6m <- data.frame(
+  row_id = crav_d_6m$row_id,
+  study = crav_metacont_6m$studlab,
+  time_point = crav_d_6m$time_point,
+  system = crav_d_6m$system,
+  intervention = crav_d_6m$intervention,
+  total_n = crav_d_6m$e_n + crav_d_6m$c_n, # Calculating total number of participants
+  c_n = crav_d_6m$c_n,
+  c_crav_mean = crav_d_6m$c_crav_mean,
+  c_crav_sd = crav_d_6m$c_crav_sd,
+  e_n = crav_d_6m$e_n,
+  e_crav_mean = crav_d_6m$e_crav_mean,
+  e_crav_sd = crav_d_6m$e_crav_sd,
+  # Adding calculated SMDs to the data frame 
+  SMD = crav_metacont_6m$TE,
+  SE = crav_metacont_6m$seTE,
+  LCI = crav_metacont_6m$lower,
+  UCI = crav_metacont_6m$upper,
+  # Adding the z- and p-values
+  `z-value` = crav_metacont_6m$TE / crav_metacont_6m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(crav_metacont_6m$TE / crav_metacont_6m$seTE))),
+  # Adding a final note on how data was converted    
+  Notes = "Calculated using metacont()",
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+To use the same author labels in APA-format across all studies and sub-studies, we need to apply the previously defined study labels to our integrated data set.
+
+```{r crav-6m-assign-labels}
+# Assign the new study labels to the combined data frame
+crav_d_full_6m$study <- ifelse(crav_d_full_6m$study %in% names(study_labels),
+                            study_labels[crav_d_full_6m$study],
+                            crav_d_full_6m$study)
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r crav-6m-arrange-year, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Arrange studies by year, with the oldest first
+crav_d_full_6m <- crav_d_full_6m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+### 3.2.2 Meta-analysis of intermediate-term effects on alcohol reduction
+
+Now with the newly defined subgroup labels, we can conduct the meta-analysis using metagen(), but this time set the parameter for subgroups to the label "Time point" and use the classic *z*-test for the random effects model.
+
+```{r crav-6m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+crav_metagen_6m <- metagen(TE = SMD,
+                    seTE = SE,
+                    studlab = study,
+                    data = crav_d_full_6m,
+                    sm = "SMD",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(crav_metagen_6m)
+```
+
+Now that we have created a list for the test statistics for each of the time points, we can create the final forest plot.
+
+```{r crav-6m-forest, fig.height=6, fig.width=11, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of short-, intermediate-, and long-term effects on alcohol reduction"}
+# Now plot the forest plot again with new subgroup names
+forest(crav_metagen_6m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       subgroup = FALSE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD", 
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+
+```
+
+### 3.2.3 Publication bias for intermediate effects on alcohol reduction
+
+As we only identified two studies for the intermediate-term effects on craving, a visual inspection for asymmetry will not be meaningful nor will there be sufficient power for an Egger's test.
+
+# 4. Main analyses on long-term outcomes
+
+The third and last part of the main analyses will be conducted on long-term effects on outcomes 12 months after discharge.
+We still use the excel-dataset "Extracted Clinical Outcome Data", but this time we will only be filtering the data sheets by time point for the calculation of effect sizes and not when conducting the meta-analyses
+
+## 4.1 Long-term abstinence
+
+First we conduct the analyses on our primary outcome of abstinence, and we calculate the effect sizes for the long-term time point.
+
+### 4.1.1 Calculation of effect sizes for long-term continuous variables
+
+We can now apply the above methodology for our time point of 12 months, which requires us first to filter the data set.
+
+```{r abs-12m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 12 month data first and store it as a new subset
+abs_d_12m <- abs_d %>% filter(time_point == "12 months")
+```
+
+The calculation of effect sizes will be done by the inbuilt functions in the meta-package, so for the categorical variables, we will use the metabin() function.
+
+```{r abs-12m-metabin, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the lnORs using metabin()
+abs_metabin_12m <- metabin(
+  event.e = e_abs,
+  n.e = e_n,
+  event.c = c_abs,
+  n.c = c_n,
+  studlab = study,
+  data = abs_d_12m,
+  sm = "OR",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE,
+  incr = 0.5,
+  allstudies = TRUE
+)
+```
+
+After we have calculated the lnORs, we can create a new data frame and store these values alongside with the other relevant variables (e.g., time point, number of abstinents, etc.) from our original dataset.
+As performed previously, we calculate the ORs and SMDs using the Chinn-factor.
+Finally, we add the z- and p-values to the data-frame.
+
+```{r abs-12m-combined-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Fetching the previously stored data frame and adding the lnORs, their SE and 95% CI
+abs_d_full_12m <- data.frame(
+  row_id = abs_d_12m$row_id,
+  study = abs_metabin_12m$studlab,
+  time_point = abs_d_12m$time_point,
+  system = abs_d_12m$system,
+  intervention = abs_d_12m$intervention,
+  total_n = abs_d_12m$e_n + abs_d_12m$c_n,
+  c_n = abs_d_12m$c_n,
+  c_abs = abs_d_12m$c_abs,
+  c_non_abs = abs_d_12m$c_n - abs_d_12m$c_abs,
+  e_n = abs_d_12m$e_n,
+  e_abs = abs_d_12m$e_abs,
+  e_non_abs = abs_d_12m$e_n - abs_d_12m$e_abs,
+# Extracting the lnORs from the metabin results
+  lnOR = abs_metabin_12m$TE,
+  SElnOR = abs_metabin_12m$seTE,
+  lnLCI = abs_metabin_12m$lower,
+  lnUCI = abs_metabin_12m$upper,
+# Calculating the ORs from the metabin results
+  OR = exp(abs_metabin_12m$TE),
+  OrSE = exp(abs_metabin_12m$TE) * abs_metabin_12m$seTE,
+  OrLCI = exp(abs_metabin_12m$lower),
+  OrUCI = exp(abs_metabin_12m$upper),
+# Calculating the SMD, SE and 95% CI using the Chinn-function
+  SMD = abs_metabin_12m$TE * chinn_lnor_to_smd,
+  SE = abs_metabin_12m$seTE * chinn_lnor_to_smd,
+  LCI = abs_metabin_12m$lower * chinn_lnor_to_smd,
+  UCI = abs_metabin_12m$upper * chinn_lnor_to_smd,
+# Adding the z- and p-values
+  `z-value` = abs_metabin_12m$TE / abs_metabin_12m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(abs_metabin_12m$TE / abs_metabin_12m$seTE))),
+# Adding a final note on how data was converted    
+  Notes = "Continuous variables converted from categorical outcome (metabin) using Chinn's formula",
+  check.names = FALSE
+)
+```
+
+We can rename the subgroups for later use for data export.
+
+```{r abs-12m-rename-subgroups, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_12m <- abs_d_full_12m %>%
+  dplyr::rename(`Cognitive system` = system) %>%
+  dplyr::mutate( # Changing the order of the two subgroups
+    `Cognitive system` = factor(`Cognitive system`,
+                      levels = c("Implicit", "Explicit"))
+    )
+```
+
+First we need to assign study labels to the data frame for 12 months.
+
+```{r abs-12m-assign-labels}
+# Assign the new study labels to the combined data frame
+abs_d_full_12m <- abs_d_full_12m %>%
+  mutate(
+    study = ifelse(
+      study %in% names(study_labels),
+      study_labels[study],
+      study
+    )
+  )
+```
+
+We want to have the author labels to be sorted by year rather than in accordance with the pre-specified study IDs and row numbers, so we first arrange the list of studies.
+
+```{r abs-12m-arrange-year, echo=TRUE, message=FALSE,}
+# Arrange studies by year, with the oldest first
+abs_d_full_12m <- abs_d_full_12m %>%
+  arrange(as.integer(str_extract(study, "\\d{4}")), study)
+```
+
+We can now calculate the baseline control risk for the long-term effects by only including studies with categorical outcomes.
+
+```{r abs-12m-ctrl-abs-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Abstinence rate risk difference across all studies on short-term effects
+p_c_abs_12m <- with(abs_d_full_12m, sum(c_abs) / sum(c_n))
+```
+
+### 4.1.2 Meta-analysis of long-term effects on abstinence
+
+Now with the newly defined subgroup labels, we can conduct the meta-analysis using metagen().
+
+```{r abs-12m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_metagen_12m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_12m,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_metagen_12m)
+```
+
+It is now possible to extract the test statistics for the individual time points, which can be used for the forest plot.
+
+```{r abs-12m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_zp_overall_12m <- data.frame(
+  lnOR = abs_metagen_12m$TE.random,
+  lnOR_se = abs_metagen_12m$seTE.random,
+  NNT = round(nnt(exp(abs_metagen_12m$TE.random), p_c_abs_12m)),
+  z_value = abs_metagen_12m$statistic.random,
+  p_value = abs_metagen_12m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_zp_subgroup_12m <- data.frame(
+  subgroup = abs_metagen_12m$bylevs,
+  lnOR = abs_metagen_12m$TE.random.w,
+  lnOR_se = abs_metagen_12m$seTE.random.w,
+  NNT = round(nnt(abs_metagen_12m$TE.random.w, p_c_abs_12m)),
+  z_value = abs_metagen_12m$statistic.random.w,
+  p_value = abs_metagen_12m$pval.random.w
+)
+```
+
+Now that we have created a list for the test statistics for each of the time points, we can create the final forest plot.
+
+```{r abs-12m-forest, fig.height=5, fig.width=10, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the short-, intermediate-, and long-term effects on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_metagen_12m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = FALSE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/15, 15),
+       at = c(0.07, 0.2, 0.5, 1, 2, 5, 15),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+footer_over_abs_12m <- paste0(
+  "Overall effect: ",
+  "z = ", round(abs_zp_overall_12m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_12m$p_value, digits = 2),
+  ", NNT ≈ ", abs_zp_overall_12m$NNT
+)
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_12m, x = 0.017, y = 0.06,
+          just = "left", gp = gpar(fontsize = 10))
+```
+
+### 4.1.3 Publication bias for long-term effects on abstinence
+
+Now we can run an Egger's test, but due to a low number of studies, we need to set the minimum *k* to eight studies.
+The results will, however, be less reliable given the small number of studies, and interpretation of the results should be cautioned.
+
+```{r abs-12m-eggers-test, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Conduct an Egger's test using the previously calculated treatment effects
+abs_egger_12m <- metabias(abs_metagen_12m, method.bias = "Egger", k.min = 8)
+
+# Print the results of the Egger's test
+print(abs_egger_12m)
+```
+
+Now with the results from the Egger's test, we can now create the funnel plot using the meta-package inbuilt function funnel().
+We can add the test statistic from the Egger's test to the funnel plot using mtext().
+As there is a high variability among these studies, we will need to adjust the limits of the x-axis so the studies can be better displayed.
+
+```{r abs-12m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot of studies with long-term effects on abstinence"}
+# Create a funnel plot for the 12 month time point
+funnel(abs_metagen_12m,
+       xlab = "Odds Ratio",
+       studlab = TRUE,
+       pch = 17,
+       cex = 0.5)
+
+# Add Egger's test statistic to the plot
+abs_egger_text_12m <- paste0("Egger's test: p = ", 
+                     round(abs_egger_12m$p.value, 3))
+
+# Define the actual placement of the statistics on the funnel plot
+mtext(abs_egger_text_12m, side=3, line=0.5, adj=0, cex=0.9, col="black")
+```
+
+## 4.2 Long-term effects on alcohol reduction
+
+### 4.2.1 Calculation of effect sizes for long-term continuous variables
+
+We repeat the procedure as in the above section but this time filter the data by the time point "12 months".
+
+```{r red-12m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 6 month data first and store it as a new subset
+red_d_12m <- red_d %>% filter(time_point == "12 months")
+```
+
+As we only have continuous data for alcohol reduction, we only need to run the metacont() on our dataset to calculate the SMDs using Hedge's *g* correction.
+
+```{r red-12m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+red_metacont_12m <- metacont(
+  n.e = e_n,
+  mean.e = e_reduc_mean,
+  sd.e = e_reduc_sd,
+  n.c = c_n,
+  mean.c = c_reduc_mean,
+  sd.c = c_reduc_sd,
+  studlab = study,
+  data = red_d_12m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+Now we can combine the calculated effect sizes and add them to the original data set without changing the original variable names.
+
+```{r red-12m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+red_d_full_12m <- data.frame(
+  row_id = red_d_12m$row_id,
+  study = red_metacont_12m$studlab,
+  time_point = red_d_12m$time_point,
+  system = red_d_12m$system,
+  intervention = red_d_12m$intervention,
+  total_n = red_d_12m$e_n + red_d_12m$c_n, # Calculating total number of participants
+  c_n = red_d_12m$c_n,
+  c_reduc_mean = red_d_12m$c_reduc_mean,
+  c_reduc_sd = red_d_12m$c_reduc_sd,
+  e_n = red_d_12m$e_n,
+  e_reduc_mean = red_d_12m$e_reduc_mean,
+  e_reduc_sd = red_d_12m$e_reduc_sd,
+  # Adding calculated SMDs to the data frame 
+  SMD = red_metacont_12m$TE,
+  SE = red_metacont_12m$seTE,
+  LCI = red_metacont_12m$lower,
+  UCI = red_metacont_12m$upper,
+  # Adding the z- and p-values
+  `z-value` = red_metacont_12m$TE / red_metacont_12m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(red_metacont_12m$TE / red_metacont_12m$seTE))),
+  # Adding a final note on how data was converted    
+  Notes = "Calculated using metacont()",
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+### 4.2.2 Meta-analysis of long-term effects on alcohol reduction
+
+As we only identified one study examining long-term effects on alcohol reduction, a meta-analysis could not be performed.
+
+### 4.2.3 Publication bias for long-term effects on alcohol reduction
+
+An assessment of publication bias was not possible due to insufficient studies.
+
+## 4.3 Long-term effects on craving
+
+The last part of our main analyses will be conducted on alcohol craving, and we calculate the effect sizes for the long-term time point.
+
+### 4.3.1 Calculation of effect sizes for long-term continuous variables
+
+We repeat the methodology used previously and start with filtering the data for 12 months
+
+```{r crav-12m-filter, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Filter 6 month data first and store it as a new subset
+crav_d_12m <- crav_d %>% filter(time_point == "12 months")
+```
+
+As we only have continuous data for alcohol craving, we only need to run the metacont()-function on our dataset to calculate the SMDs using Hedge's *g* correction.
+
+```{r crav-12m-metacont, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Calculating the SMDs (Hedge's g) using metacont()
+crav_metacont_12m <- metacont(
+  n.e = e_n,
+  mean.e = e_crav_mean,
+  sd.e = e_crav_sd,
+  n.c = c_n,
+  mean.c = c_crav_mean,
+  sd.c = c_crav_sd,
+  studlab = study,
+  data = crav_d_12m,
+  sm = "SMD",
+  method.smd = "Hedges",
+  method.tau = "REML",
+  method.random.ci = "classic",
+  random = TRUE
+)
+```
+
+Now we can combine the calculated effect sizes and add them to the original data set without changing the original variable names.
+
+```{r crav-12m-combined, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Combine the SMDs calculated with original variables and store it in a new data frame
+crav_d_full_12m <- data.frame(
+  row_id = crav_d_12m$row_id,
+  study = crav_metacont_12m$studlab,
+  time_point = crav_d_12m$time_point,
+  system = crav_d_12m$system,
+  intervention = crav_d_12m$intervention,
+  total_n = crav_d_12m$e_n + crav_d_12m$c_n, # Calculating total number of participants
+  c_n = crav_d_12m$c_n,
+  c_crav_mean = crav_d_12m$c_crav_mean,
+  c_crav_sd = crav_d_12m$c_crav_sd,
+  e_n = crav_d_12m$e_n,
+  e_crav_mean = crav_d_12m$e_crav_mean,
+  e_crav_sd = crav_d_12m$e_crav_sd,
+  # Adding calculated SMDs to the data frame 
+  SMD = crav_metacont_12m$TE,
+  SE = crav_metacont_12m$seTE,
+  LCI = crav_metacont_12m$lower,
+  UCI = crav_metacont_12m$upper,
+  # Adding the z- and p-values
+  `z-value` = crav_metacont_12m$TE / crav_metacont_12m$seTE,
+  `p-value` = 2 * (1 - pnorm(abs(crav_metacont_12m$TE / crav_metacont_12m$seTE))),
+  # Adding a final note on how data was converted    
+  Notes = "Calculated using metacont()",
+  check.names = FALSE # Removing the period as a space
+)
+```
+
+### 4.3.2 Meta-analysis of long-term effects on craving
+
+As only one study was identified on long-term effects on craving, no meta-analysis could be performed.
+
+### 4.3.3 Publication bias for intermediate effects on craving
+
+An assessment of publication bias was not possible due to insufficient studies.
+
+# 5. Exploratory analyses on short-term outcomes by intervention
+
+To explore the short-term effects on abstinence by each intervention type, we use the assigned new variable names to the subgroups to create a visually more appealing forest plot.
+We use the labels for our intervention types: AtBM (Attentional bias modification), ApBM (Approach bias modification), ItBM (Inhibitory bias modification), ExRT (Executive function retraining), and WmRT (Working memory retraining).
+
+```{r abs-exp-3m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_3m <- abs_d_full_3m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+## 5.1 Short-term effects on abstinence by intervention
+
+We conduct the exploratory analyses first on the short-term abstinence, which included the most studies.
+
+### 5.1.1 Meta-analysis on abstinence
+
+Now with the intervention labels, we can conduct the meta-analysis using metagen(), but this time set the parameter for subgroups to the label "intervention" and use the classic *z*-test for the random effects model.
+
+With the new subgroup names, we can pool the effects across studies and stratify by the cognitive systems targeted by the intervention used in each study.
+This is achieved by using metagen(), where we define our treatment effect (TE) as the lnOR and corresponding standard error of the treatment effect (seTE) as the SE of the lnOR.
+We apply a random effects model using REML and use a classic *z*-test.
+
+```{r abs-exp-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_exp_metagen_3m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_3m,
+                    subgroup = Intervention,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_exp_metagen_3m)
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r abs-exp-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_exp_zp_overall_3m <- data.frame(
+  lnOR = abs_exp_metagen_3m$TE.random,
+  lnOR_se = abs_exp_metagen_3m$seTE.random,
+  NNT = round(nnt(exp(abs_exp_metagen_3m$TE.random), p_c_abs_3m)),
+  z_value = abs_exp_metagen_3m$statistic.random,
+  p_value = abs_exp_metagen_3m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_exp_zp_subgroup_3m <- data.frame(
+  subgroup = abs_exp_metagen_3m$bylevs,
+  lnOR = abs_exp_metagen_3m$TE.random.w,
+  lnOR_se = abs_exp_metagen_3m$seTE.random.w,
+  NNT = round(nnt(exp(abs_exp_metagen_3m$TE.random.w), p_c_abs_3m)),
+  z_value = abs_exp_metagen_3m$statistic.random.w,
+  p_value = abs_exp_metagen_3m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-exp-3m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+abs_exp_subsplit_3m <- split(abs_exp_zp_subgroup_3m, abs_exp_zp_subgroup_3m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r abs-exp-3m-forest, fig.height=10, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+ # Right side: default BMJ columns
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for AtBM
+footer_atbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$AtBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$AtBM$p_value, digits = 2),
+    ", NNH ≈ ", abs(abs_exp_subsplit_3m$AtBM$NNT) # Write NNH instead, as it is negative
+  )
+)
+
+# Add a footer for the test statistics of the effects for ItBM
+footer_itbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$ItBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$ItBM$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_subsplit_3m$ItBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$ApBM$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_subsplit_3m$ApBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_3m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_3m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_3m$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_zp_overall_3m$NNT
+  )
+)
+
+# Adjust the footer for the AtBM effect to the bottom left
+grid.text(footer_atbm_abs_3m, x = 0.076, y = 0.73,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ItBM effect to the bottom left
+grid.text(footer_itbm_abs_3m, x = 0.076, y = 0.51,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_3m, x = 0.076, y = 0.27,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_3m, x = 0.076, y = 0.035,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+## 5.2 Short-term effects on alcohol reduction by intervention
+
+As only approach bias modification programs were used among the identified studies, we do not need to re-run the analyses using a new subgroup parameter, and we can simply use the results from the main analyses.
+
+### 5.2.1 Meta-analysis on alcohol reduction
+
+Not possible to pool effects for other interventions than ApBM, thus the results are the same as for the main analyses.
+
+## 5.3 Short-term effects on alcohol craving by intervetion
+
+To explore the short-term effects on craving by each intervention type, we use the assigned new variable names to the subgroups to create a visually more appealing forest plot.
+We use the labels for our intervention types: AtBM (Attentional bias modification), ApBM (Approach bias modification), ItBM (Inhibitory bias modification), ExRT (Executive function retraining), and WmRT (Working memory retraining).
+
+```{r crav-exp-3m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+crav_d_full_3m <- crav_d_full_3m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+Now with the intervention labels, we can conduct the meta-analysis using metagen(), but this time set the parameter for subgroups to the label "intervention" and use the classic *z*-test for the random effects model.
+
+With the new subgroup names, we can pool the effects across studies and stratify by the cognitive systems targeted by the intervention used in each study.
+
+This is achieved by using metagen(), where we define our treatment effect (TE) as the SMD and corresponding standard error of the treatment effect (seTE) as the SE of the SMD.
+We apply a random effects model using REML and use a classic *z*-test.
+
+```{r crav-exp-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+crav_exp_metagen_3m <- metagen(TE = SMD,
+                    seTE = SE,
+                    studlab = study,
+                    data = crav_d_full_3m,
+                    subgroup = Intervention,
+                    sm = "SMD",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(crav_exp_metagen_3m)
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r crav-exp-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+crav_exp_zp_overall_3m <- data.frame(
+  SMD = crav_exp_metagen_3m$TE.random,
+  SE = crav_exp_metagen_3m$seTE.random,
+  z_value = crav_exp_metagen_3m$statistic.random,
+  p_value = crav_exp_metagen_3m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+crav_exp_zp_subgroup_3m <- data.frame(
+  subgroup = crav_exp_metagen_3m$bylevs,
+  SMD = crav_exp_metagen_3m$TE.random.w,
+  SE = crav_exp_metagen_3m$seTE.random.w,
+  z_value = crav_exp_metagen_3m$statistic.random.w,
+  p_value = crav_exp_metagen_3m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r crav-exp-3m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+crav_exp_subsplit_3m <- split(crav_exp_zp_subgroup_3m, crav_exp_zp_subgroup_3m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r crav-exp-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(crav_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       subgroup = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD", 
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+
+```
+
+### 5.3.1 Meta-analysis on alcohol craving
+
+Insufficient data for analysis for intervention types.for each subgroup in the final forest plot, we can create a split of the data frame.
+
+## 5.4 Intermediate-term effects on abstinence by intervention
+
+Now we can look at the intermediate-term effects on abstinence by each intervention type.
+First we define the intervention types and its levels.
+
+```{r abs-exp-6m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_6m <- abs_d_full_6m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+### 5.4.1 Meta-analysis on abstinence
+
+Then we run a meta-analysis using this new subset of our abstinence data for 6 months.
+
+```{r abs-exp-6m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_exp_metagen_6m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_6m,
+                    subgroup = Intervention,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_exp_metagen_6m)
+```
+
+We can now calculate the baseline control risk for the intermediate-term effects by only including studies with categorical outcomes.
+
+```{r abs-exp-6m-ctrl-abs-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Abstinence rate risk difference across all studies on short-term effects
+p_c_exp_abs_6m <- with(abs_d_6m, sum(c_abs) / sum(c_n))
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r abs-exp-6m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_exp_zp_overall_6m <- data.frame(
+  lnOR = abs_exp_metagen_6m$TE.random,
+  lnOR_se = abs_exp_metagen_6m$seTE.random,
+  NNT = round(nnt(exp(abs_exp_metagen_6m$TE.random), p_c_exp_abs_6m)),
+  z_value = abs_exp_metagen_6m$statistic.random,
+  p_value = abs_exp_metagen_6m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_exp_zp_subgroup_6m <- data.frame(
+  subgroup = abs_exp_metagen_6m$bylevs,
+  lnOR = abs_exp_metagen_6m$TE.random.w,
+  lnOR_se = abs_exp_metagen_6m$seTE.random.w,
+  NNT = round(nnt(exp(abs_exp_metagen_6m$TE.random.w), p_c_exp_abs_6m)),
+  z_value = abs_exp_metagen_6m$statistic.random.w,
+  p_value = abs_exp_metagen_6m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-exp-6m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+abs_exp_subsplit_6m <- split(abs_exp_zp_subgroup_6m, abs_exp_zp_subgroup_6m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r abs-exp-6m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_exp_metagen_6m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_6m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_6m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_6m$ApBM$p_value, digits = 2),
+    ", NNH > 100 "
+  )
+)
+
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_6m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_6m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_6m$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_zp_overall_6m$NNT
+  )
+)
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_6m, x = 0.094, y = 0.43,
+          just = "left", gp = gpar(fontsize = 10))
+
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_6m, x = 0.094, y = 0.12,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+## 5.5 Intermediate-term effects on alcohol reduction by intervention
+
+As only approach bias modification programs were used among the identified studies, we do not need to re-run the analyses using a new subgroup parameter, and we can simply use the results from the main analyses on the intermediate-term outcome.
+
+### 5.5.1 Meta-analysis on alcohol reduction
+
+Not possible to pool effects for other interventions than ApBM.
+
+## 5.6 Intermediate-term effects on craving by intervention
+
+As only approach bias modification programs were used among the identified studies, we do not need to re-run the analyses using a new subgroup parameter, and we can simply use the results from the main analyses on the intermediate-term outcome.
+
+### 5.6.1 Meta-analysis on craving
+
+Not possible to pool effects for other interventions than ApBM.
+
+## 5.7 Long-term effects on astinence by intervention
+
+Now we can look at the final part of the exploratory analyses, by examining the long-term effects on abstinence by intervention type.
+First we define the intervention types and its levels.
+
+```{r abs-exp-12m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_12m <- abs_d_full_12m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+### 5.7.1 Meta-analysis on abstinence
+
+Then we run a meta-analysis using this new subset of our abstinence data for 12 months.
+
+```{r abs-exp-12m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_exp_metagen_12m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_12m,
+                    subgroup = Intervention,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_exp_metagen_12m)
+```
+
+We can now calculate the baseline control risk for the long-term effects by only including studies with categorical outcomes.
+
+```{r abs-exp-12m-ctrl-abs-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Abstinence rate risk difference across all studies on short-term effects
+p_c_exp_abs_12m <- with(abs_d_12m, sum(c_abs) / sum(c_n))
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r abs-exp-12m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_exp_zp_overall_12m <- data.frame(
+  lnOR = abs_exp_metagen_12m$TE.random,
+  lnOR_se = abs_exp_metagen_12m$seTE.random,
+  NNT = round(nnt(exp(abs_exp_metagen_12m$TE.random), p_c_abs_12m)),
+  z_value = abs_exp_metagen_12m$statistic.random,
+  p_value = abs_exp_metagen_12m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_exp_zp_subgroup_12m <- data.frame(
+  subgroup = abs_exp_metagen_12m$bylevs,
+  lnOR = abs_exp_metagen_12m$TE.random.w,
+  lnOR_se = abs_exp_metagen_12m$seTE.random.w,
+  NNT = round(nnt(exp(abs_exp_metagen_12m$TE.random.w), p_c_abs_12m)),
+  z_value = abs_exp_metagen_12m$statistic.random.w,
+  p_value = abs_exp_metagen_12m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-exp-12m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+abs_exp_subsplit_12m <- split(abs_exp_zp_subgroup_12m, abs_exp_zp_subgroup_12m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r abs-exp-12m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_exp_metagen_12m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+
+# Add a footer for the test statistics of the effects for ItBM
+footer_itbm_abs_12m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_12m$ItBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_12m$ItBM$p_value, digits = 2),
+    ", NNH ≈ ", abs(abs_exp_subsplit_12m$ItBM$NNT) # Write NNH instead as the number is negative
+  )
+)
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_12m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_12m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_12m$ApBM$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_subsplit_12m$ApBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_12m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_12m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_12m$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_zp_overall_12m$NNT
+  )
+)
+
+# Adjust the footer for the ItBM effect to the bottom left
+grid.text(footer_itbm_abs_12m, x = 0.098, y = 0.55,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_12m, x = 0.098, y = 0.19,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_12m, x = 0.098, y = 0.06,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+## 5.8 Long-term effects on alcohol reduction by intervention
+
+As only one study was identified examining long-term outcomes on alcohol reduction, the exploratory analysis by intervention type could not be performed.
+
+### 5.8.1 Meta-analysis on alcohol reduction
+
+Meta-analysis was not performed due to insufficient studies.
+
+## 5.9 Long-term effects on craving by intervention
+
+As only one study was identified examining long-term outcomes on craving, the exploratory analysis by intervention type could not be performed.
+
+### 5.9.1 Meta-analysis on craving
+
+Meta-analysis was not performed due to insufficient studies.
+
+# 6. Exports of data and visual plots
+
+In this final section, we extract the calculated effect sizes as a new Excel spreadsheet named "Calculated Effect Sizes", which can be uploaded to a repository or as supplementary material for publication.
+Then we will be calculating the weights for the RoB-summary and exporting it as a new csv-file.
+Finally, we export the weighted RoB-summary plot and some of the forest plots of our meta-analyses in high resolution, which will be needed for the final manuscript.
+
+## 6.1 Data export
+
+For keeping our original terminology for our extracted data, we want to export our data set with the calculated effect sizes with an additional column containing the study ID, which refers to separate reports of the same study that is defined by a combination of a number and a letter (i.e., denoting a certain report for a specific time point).
+
+First, we merge all data frames containing the calculated effect sizes for abstinence, alcohol reduction, and craving into one list of study labels.
+
+```{r merge-abs-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# ABSTINENCE DATA FRAMES
+# Define function to fix the data types for the abs data frames
+fix_abs_types <- function(df) {
+  df %>%
+    mutate(across(
+      any_of(c(
+        "total_n",
+        "c_n", "c_abs", "c_non_abs",
+        "e_n", "e_abs", "e_non_abs"
+      )),
+      ~ as.numeric(.)
+    ))
+}
+# Fix data frames before merging
+abs_d_full_3m  <- fix_abs_types(abs_d_full_3m)
+abs_d_full_6m  <- fix_abs_types(abs_d_full_6m)
+abs_d_full_12m <- fix_abs_types(abs_d_full_12m)
+
+# Combine all data frames
+abs_d_full_012m <- bind_rows(
+  abs_d_full_3m,
+  abs_d_full_6m,
+  abs_d_full_12m
+) %>%
+  arrange(time_point, `Cognitive system`, Intervention, study) %>%
+  mutate(row_id = row_number()) %>%
+  rename(
+    system = `Cognitive system`,
+    intervention = Intervention
+  )
+
+# ALCOHOL REDUCTION DATA FRAMES
+# Define function to fix the data types for the red data frames
+fix_red_types <- function(df) {
+  df %>%
+    mutate(across(
+      any_of(c(
+        # counts / sample sizes
+        "total_n", "c_n", "e_n",
+        # continuous outcome descriptives (if present)
+        "c_mean", "e_mean", "c_sd", "e_sd",
+        # effect-size columns (if present)
+        "SMD", "SE", "LCI", "UCI",
+        "lnOR", "SElnOR", "lnLCI", "lnUCI",
+        "OR", "OrSE", "OrLCI", "OrUCI",
+        "z_value", "p_value"
+      )),
+      ~ as.numeric(.)
+    ))
+}
+# Fix data frames before merging
+red_d_full_3m  <- fix_red_types(red_d_full_3m)
+red_d_full_6m  <- fix_red_types(red_d_full_6m)
+red_d_full_12m <- fix_red_types(red_d_full_12m)
+
+# Combine all data frames
+red_d_full_012m <- bind_rows(
+  red_d_full_3m,
+  red_d_full_6m,
+  red_d_full_12m
+) %>%
+  arrange(time_point, system, intervention, study) %>%
+  mutate(row_id = row_number())
+
+# CRAVING DATA FRAMES
+# Define function to fix the data types for the crav data frames
+fix_crav_types <- function(df) {
+  df %>%
+    mutate(across(
+      any_of(c(
+        "total_n", "c_n", "e_n",
+        "c_mean", "e_mean", "c_sd", "e_sd",
+        "SMD", "SE", "LCI", "UCI",
+        "lnOR", "SElnOR", "lnLCI", "lnUCI",
+        "OR", "OrSE", "OrLCI", "OrUCI",
+        "z_value", "p_value"
+      )),
+      ~ as.numeric(.)
+    ))
+}
+# Fix data frames before merging
+crav_d_full_3m  <- fix_crav_types(crav_d_full_3m)
+crav_d_full_6m  <- fix_crav_types(crav_d_full_6m)
+crav_d_full_12m <- fix_crav_types(crav_d_full_12m)
+# Combine all data frames
+crav_d_full_012m <- bind_rows(
+  crav_d_full_3m,
+  crav_d_full_6m,
+  crav_d_full_12m
+) %>%
+  arrange(time_point, system, intervention, study) %>%
+  mutate(row_id = row_number())
+
+```
+
+Secondly, we define a new list reversing the previously defined study labels.
+
+```{r define-old-study-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Swap names and values
+base_ids <- sub("^([0-9]+)[a-z]_(.*)$", "\\1_\\2", names(study_labels))
+
+# Now build reversed mapping: from APA label -> base ID (e.g. "Dubuson et al. (2021)" -> "3_dubuson_2021")
+study_labels_reversed <- setNames(base_ids, study_labels)
+
+```
+
+Now we can create a list that determines the correct study ID based on the combination of base ID and time point.
+
+```{r old-labels-list, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Function to add study ID labels based on time point
+time_map  <-  tribble(
+  ~base_id,              ~time_point,     ~study_id,
+
+  # 1 — Chen
+  "1_chen_2022",         "6 months",       "1_chen_2022",
+
+  # 2 — Uyl
+  "2_uyl_2018",          "0–3 months",     "2a_uyl_2018",
+  "2_uyl_2018",          "12 months",      "2b_uyl_2018",
+
+  # 3 — Dubuson
+  "3_dubuson_2021",      "0–3 months",     "3c_dubuson_2021",
+  "3_dubuson_2021",      "6 months",       "3d_dubuson_2021",
+  "3_dubuson_2021",      "12 months",      "3e_dubuson_2021",
+
+  # 4 — Eberl
+  "4_eberl_2013",        "12 months",      "4_eberl_2013",
+
+  # 5 — Manning 2022 (+ Garfield 2022)
+  "5_manning_2022",      "0–3 months",     "5b_manning_2022",
+  "5_manning_2022",      "6 months",       "5c_manning_2022",
+  "5_manning_2022",      "12 months",      "5d_manning_2022",
+
+  "5_garfield_2022",     "0–3 months",     "5f_garfield_2022",
+  "5_garfield_2022",     "12 months",      "5h_garfield_2022",
+
+  # 6 — Grieder
+  "6_grieder_2022",      "0–3 months",     "6_grieder_2022",
+
+  # 7 — Garfield 2024
+  "7_garfield_2024",     "0–3 months",     "7c_garfield_2024",
+
+  # 8 — Kvamme
+  "8_kvamme_2019",       "0–3 months",     "8b_kvamme_2019",
+
+  # 9 — Kumar
+  "9_kumar_2019",        "0–3 months",     "9b_kumar_2019",
+  "9_kumar_2019",        "6 months",       "9c_kumar_2019",
+
+  # 10 — Laurens
+  "10_laurens_2023",     "0–3 months",     "10b_laurens_2023",
+  "10_laurens_2023",     "6 months",       "10c_laurens_2023",
+
+  # 11 — Manning 2016
+  "11_manning_2016",     "0–3 months",     "11_manning_2016",
+
+  # 12 — Peerenboom
+  "12_peerenboom_2022",  "0–3 months",     "12a_peerenboom_2022",
+  "12_peerenboom_2022",  "12 months",      "12b_peerenboom_2022",
+
+  # 13 — Rinck
+  "13_rinck_2018",       "12 months",      "13a_rinck_2018",
+
+  # 14 — Schenkel 2023
+  "14_schenkel_2023",    "0–3 months",     "14a_schenkel_2023",
+  "14_schenkel_2023",    "12 months",      "14b_schenkel_2023",
+
+  # 15 — Schenkel 2024
+  "15_schenkel_2024",    "0–3 months",     "15a_schenkel_2024",
+  "15_schenkel_2024",    "6 months",       "15b_schenkel_2024",
+  "15_schenkel_2024",    "12 months",      "15c_schenkel_2024",
+
+  # 16 — Schoenmakers
+  "16_schoenmakers_2010","0–3 months",     "16b_schoenmakers_2010",
+
+  # 17 — Stein
+  "17_stein_2023",       "0–3 months",     "17b_stein_2023",
+
+  # 18 — Wiers
+  "18_wiers_2011",       "0–3 months",     "18a_wiers_2011",
+  "18_wiers_2011",       "12 months",      "18b_wiers_2011",
+
+  # 19 — Spruyt
+  "19_spruyt_2025",      "0–3 months",     "19a_spruyt_2025",
+  "19_spruyt_2025",      "6 months",       "19b_spruyt_2025",
+  "19_spruyt_2025",      "12 months",      "19c_spruyt_2025",
+
+  # 20 — Mistarz
+  "20_mistarz_2025",     "0–3 months",     "20a_mistarz_2025",
+  "20_mistarz_2025",     "6 months",       "20b_mistarz_2025"
+)
+
+```
+
+Now we can create a function that applies the correct study labels to each of the three data frames based on the time point and base ID.
+
+```{r study-labels-function, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Function to apply study labels based on time point
+apply_study_labels <- function(df, time_map, study_labels_reversed) {
+
+  df %>%
+    # Standardize time_point so it matches the keys in time_map
+    mutate(
+      time_point = case_when(
+        time_point %in% c("0-3 months", "0 – 3 months", "0 –3 months") ~ "0–3 months",
+        TRUE ~ time_point
+      )
+    ) %>%
+    # base_id from APA label; if study is already a code, this will be NA
+    mutate(base_id = study_labels_reversed[study]) %>%
+    # join on base_id + time_point
+    left_join(time_map, by = c("base_id", "time_point")) %>%
+    mutate(
+      # If a mapping exists, use study_id;
+      # otherwise keep the original study value (this protects 5d_manning_2022, 5h_garfield_2022, etc.)
+      study = if_else(!is.na(study_id), study_id, study)
+    ) %>%
+    select(-base_id, -study_id)
+}
+
+```
+
+Now we can apply this function to all three data frames containing the calculated effect sizes.
+
+```{r apply-study-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Apply the function to each data frame
+abs_d_full_012m  <- apply_study_labels(abs_d_full_012m,  time_map, study_labels_reversed)
+crav_d_full_012m <- apply_study_labels(crav_d_full_012m, time_map, study_labels_reversed)
+red_d_full_012m  <- apply_study_labels(red_d_full_012m,  time_map, study_labels_reversed)
+
+```
+
+The last step is to export all the data frames into one Excel sheet, but categorized by "Abstinence", "Reduction" and "Craving", which will all have their own sheet.
+We ensure that previously defined data frame for abs does not contain characters, which is achieved by converting the data columns.
+
+```{r export-effect-sizes, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# Specify the columns you want to convert
+cols_to_convert <- c("c_n", "c_abs", "c_non_abs", "e_n", "e_abs", "e_non_abs")
+
+# Convert them to numeric (safely even if they are currently character)
+abs_d_full_012m[cols_to_convert] <- lapply(abs_d_full_012m[cols_to_convert], function(x) as.numeric(as.character(x)))
+
+# Create a new Excel workbook
+exp_full_d <- createWorkbook()
+
+# Add and write data to the first sheet: Abstinence
+addWorksheet(exp_full_d, "Abstinence")
+writeData(exp_full_d, sheet = "Abstinence", abs_d_full_012m)
+
+# Add and write data to the second sheet: Reduction
+addWorksheet(exp_full_d, "Reduction")
+writeData(exp_full_d, sheet = "Reduction", red_d_full_012m)
+
+# Add and write data to the first sheet: Craving
+addWorksheet(exp_full_d, "Craving")
+writeData(exp_full_d, sheet = "Craving", crav_d_full_012m)
+
+# Save the workbook
+saveWorkbook(exp_full_d, file = "Calculated Effect Sizes.xlsx", overwrite = TRUE)
+```
+
+Now we can turn to exporting the final data set for weighted RoB-summary.
+First, we will need to extract the unique studies used for our main analyses.
+
+```{r rob-final-extraction, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Define study IDs for abs
+abs_rob <- c(
+            "1_chen_2022",
+            "2b_uyl_2018",
+            "3e_dubuson_2021",
+            "4_eberl_2013",
+            "5d_manning_2022",
+            "6_grieder_2022",
+            "8b_kvamme_2019",
+            "9c_kumar_2019",
+            "11_manning_2016",
+            "12b_peerenboom_2022",
+            "13a_rinck_2018",
+            "14b_schenkel_2023",
+            "15c_schenkel_2024",
+            "16b_schoenmakers_2010",
+            "17b_stein_2023",
+            "18b_wiers_2011",
+            "19c_spruyt_2025",
+            "20b_mistarz_2025"
+)
+
+# Define study IDs for alcohol reduction
+red_rob <- c(
+  "7c_garfield_2024", "10c_laurens_2023"
+)
+
+# Filter and select only needed columns in the data frame for abs
+abs_d_rob <- abs_d_full_012m %>%
+  filter(study %in% abs_rob) %>%
+  select(study, SE)
+
+# Filter and select only needed columns in the data frame for alcohol reduction
+red_d_rob <- red_d_full_012m %>%
+  filter(study %in% red_rob) %>%
+  select(study, SE)
+
+# Combine the two sets
+rob_d_se <- bind_rows(abs_d_rob, red_d_rob) %>%
+  mutate(SE = as.numeric(SE))
+```
+
+With a new data frame only including the outcomes extracted and rated from our unique studies, we can calculate the absolute and relative weights using the SE. After this, the relative weights can be added to the final RoB-summary data and exported as a new csv-file named "Weighted RoB Data".
+
+```{r rob-weight-calc, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Remove non-unique reports from rob_d first (so they don't appear in output)
+rob_d_unique <- rob_d %>%
+  dplyr::filter(!Study %in% c("Garfield et al. (2022)*", "Manning et al. (2021)*"))
+
+# 1) Build weights keyed by BASE study id from rob_d_se (coded ids like 3c_dubuson_2021)
+rob_weights_base <- rob_d_se %>%
+  dplyr::mutate(
+    base_id = sub("^([0-9]+)[a-z]_(.*)$", "\\1_\\2", study),
+    SE = suppressWarnings(as.numeric(SE))
+  ) %>%
+  dplyr::filter(!is.na(SE), SE > 0) %>%
+  dplyr::group_by(base_id) %>%
+  dplyr::summarise(weight = sum(1 / (SE^2)), .groups = "drop") %>%
+  dplyr::mutate(weight_percent = 100 * weight / sum(weight)) %>%
+  dplyr::select(base_id, weight_percent)
+
+# 2) Join weights onto RoB table using APA Study label -> base_id mapping, but do NOT keep helper columns
+rob_d_weighted <- rob_d_unique %>%
+  dplyr::mutate(
+    join_base_id = unname(study_labels_reversed[gsub("\\*$", "", Study)])
+  ) %>%
+  dplyr::left_join(
+    rob_weights_base,
+    by = c("join_base_id" = "base_id")
+  ) %>%
+  dplyr::select(-join_base_id)
+
+# 3) Optional diagnostic: show which studies didn't get a weight (if any)
+if (any(is.na(rob_d_weighted$weight_percent))) {
+  message("These studies did not receive a weight (label mismatch or missing SE):")
+  print(rob_d_weighted %>% dplyr::filter(is.na(weight_percent)) %>% dplyr::distinct(Study))
+}
+
+# 4) Export
+write.csv(rob_d_weighted, "Weighted RoB Data.csv", row.names = FALSE)
+```
+
+
+Now we want to display the percentages, so that these can be reported in the manuscript.
+
+```{r rob-summary-pct, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Reshape to long format (excluding weight column)
+rob_pct <- rob_d_weighted %>%
+  pivot_longer(cols = D1:Overall, names_to = "Domain", values_to = "Judgment")
+
+# Label domains and enforce correct domain order using factor
+rob_labels <- c(
+  D1 = "Randomization process",
+  D2 = "Deviations from intended interventions",
+  D3 = "Missing outcome data",
+  D4 = "Measurement of the outcome",
+  D5 = "Selection of the reported result",
+  Overall = "Overall risk of bias"
+)
+
+# Use the label values to define order
+domain_order <- rob_labels %>% unname()
+rob_pct <- rob_pct %>%
+  mutate(
+    Domain = recode(Domain, !!!rob_labels),
+    Domain = factor(Domain, levels = domain_order),
+    Judgment = factor(Judgment, levels = c("Low", "Some concerns", "High"))  # <-- key line
+  )
+
+# Count and calculate percentage
+rob_pct_summary <- rob_pct %>%
+  group_by(Domain, Judgment) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Domain) %>%
+  mutate(Percent = round(n / sum(n) * 100, 1))
+
+# Wide format summary table
+rob_pct_summary <- rob_pct_summary %>%
+  select(Domain, Judgment, Percent) %>%
+  pivot_wider(names_from = Judgment, values_from = Percent, values_fill = 0)
+
+# Print the ordered summary table
+print(rob_pct_summary)
+```
+
+## 6.2 Figure export
+
+In this section we export some of the figures displayed in this report.
+As the final manuscript will not include all of the figures displayed in this report, we only want to create high resolution exports for the files used in the manuscript.
+The remaining plots and figures will be added to the supplementary material in a word-file using the images created by `knitr` and the corresponding knitted word-document.
+We will export four figures in total and they follow the naming convention "fig_x\_", and as a flow-chart is included as the first figure in the manuscript, the figures will start with "fig_2\_".
+
+We first export the summary of the RoB-assessment across all domains, but this time with the weighted summary data.
+The figure will be exported as figure 2.
+
+```{r export-rob-summary, echo=FALSE, fig.height=6, fig.width=10, message=FALSE, warning=FALSE, include=TRUE}
+# Export the RoB summary plot (Figure 2 in final manuscript)
+tiff("fig_2_rob_summary_plot.tiff", width = 8, height = 5, units = "in", res = 600)
+rob_summary(rob_d_weighted, tool = "ROB2", weighted = FALSE)
+invisible(dev.off())
+```
+
+We then export our forest plots, and as most of our identified studies included abs, we will only export the forest plots for our main, secondary, and tertiary analyses for abs.
+The plots for alcohol reduction and craving will be included in the supplementary material.
+
+The first forest plot for our main analysis on short-term effects on abstinence, will be exported as figure 3.
+
+```{r export-abs-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Export the forest plot for abs for 0-3 months
+tiff("fig_3_abs_short_forest_plot.tiff", width = 12, height = 8, units = "in", res = 600)
+forest(abs_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/30, 30),
+       at = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for implicit system
+footer_imp_abs_3m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_subsplit_3m$Implicit$z_value, 2),
+    ", p = ", formatC(abs_zp_subsplit_3m$Implicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_subsplit_3m$Implicit$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for explicit system
+footer_exp_abs_3m <- paste0(
+  "Subgroup effect",
+  paste0(
+    ": z = ", round(abs_zp_subsplit_3m$Explicit$z_value, 2),
+    ", p = ", formatC(abs_zp_subsplit_3m$Explicit$p_value, digits = 2),
+    ", NNT ≈ ", abs_zp_subsplit_3m$Explicit$NNT
+  )
+)
+
+footer_over_abs_3m <- paste0(
+  "Overall effect: ",
+  "z = ", round(abs_zp_overall_3m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_3m$p_value, digits = 2),
+  ", NNT ≈ ", abs_zp_overall_3m$NNT
+)
+
+# Adjust the footer for the subgroup effects after implicit subgroup
+grid.text(footer_imp_abs_3m, x = 0.079, y = 0.38,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the subgroup effects after explicit subgroup
+grid.text(footer_exp_abs_3m, x = 0.079, y = 0.2,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_3m, x = 0.079, y = 0.08,
+          just = "left", gp = gpar(fontsize = 10))
+invisible(dev.off())
+```
+
+The second forest plot for our main analysis on long-term effects on abstinence, will be exported as figure 4.
+
+```{r export-abs-12m-forest, fig.height=5, fig.width=10, message=FALSE, warning=FALSE, include=TRUE}
+# Export the forest plot for secondary analysis for abs (0-3 months)
+tiff("fig_4_abs_long_forest_plot.tiff", width = 10, height = 5, units = "in", res = 600)
+# Now plot the forest plot again with new subgroup names
+forest(abs_metagen_12m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = FALSE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/15, 15),
+       at = c(0.07, 0.2, 0.5, 1, 2, 5, 15),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+footer_over_abs_12m <- paste0(
+  "Overall effect: ",
+  "z = ", round(abs_zp_overall_12m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_12m$p_value, digits = 2),
+  ", NNT ≈ ", abs_zp_overall_12m$NNT
+)
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_12m, x = 0.017, y = 0.06,
+          just = "left", gp = gpar(fontsize = 10))
+invisible(dev.off())
+```
+
+The third forest plot for our exploratory analysis on short-term effects on abstinence by intervention type, will be exported as figure 5.
+
+```{r export-abs-exp-3m-forest, fig.height=10, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Now plot the forest plot again with new subgroup names
+tiff("fig_5_abs_short_intv_forest_plot.tiff", width = 12, height = 10, units = "in", res = 600)
+forest(abs_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+ # Right side: default BMJ columns
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for AtBM
+footer_atbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$AtBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$AtBM$p_value, digits = 2),
+    ", NNH ≈ ", abs(abs_exp_subsplit_3m$AtBM$NNT) # Write NNH instead, as it is negative
+  )
+)
+
+# Add a footer for the test statistics of the effects for ItBM
+footer_itbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$ItBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$ItBM$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_subsplit_3m$ItBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$ApBM$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_subsplit_3m$ApBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_3m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_3m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_3m$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_zp_overall_3m$NNT
+  )
+)
+
+# Adjust the footer for the AtBM effect to the bottom left
+grid.text(footer_atbm_abs_3m, x = 0.076, y = 0.73,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ItBM effect to the bottom left
+grid.text(footer_itbm_abs_3m, x = 0.076, y = 0.51,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_3m, x = 0.076, y = 0.27,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_3m, x = 0.076, y = 0.035,
+          just = "left", gp = gpar(fontsize = 10))
+invisible(dev.off())
+```
+
+The fourth forest plot for our exploratory analysis on long-term effects on abstinence by intervention type, will be exported as figure 6.
+
+```{r export-abs-exp-12m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Now plot the forest plot again with new subgroup names
+tiff("fig_6_abs_long_intv_forest_plot.tiff", width = 12, height = 8, units = "in", res = 600)
+forest(abs_exp_metagen_12m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+
+# Add a footer for the test statistics of the effects for ItBM
+footer_itbm_abs_12m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_12m$ItBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_12m$ItBM$p_value, digits = 2),
+    ", NNH ≈ ", abs(abs_exp_subsplit_12m$ItBM$NNT) # Write NNH instead as the number is negative
+  )
+)
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_12m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_12m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_12m$ApBM$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_subsplit_12m$ApBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_12m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_12m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_12m$p_value, digits = 2),
+    ", NNT ≈ ", abs_exp_zp_overall_12m$NNT
+  )
+)
+
+# Adjust the footer for the ItBM effect to the bottom left
+grid.text(footer_itbm_abs_12m, x = 0.098, y = 0.55,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_12m, x = 0.098, y = 0.19,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_12m, x = 0.098, y = 0.06,
+          just = "left", gp = gpar(fontsize = 10))
+invisible(dev.off())
+```
+
+\newpage
+
+# 7. R packages used
+
+Some of the auxiliary packages used in this analysis report can be outputted using the package `grateful` by @rodriguez-sanchezaut2025.
+The version number and the corresponding reference of the package are listed next to the package name in the package below.
+
+```{r packages-overview, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Add summary of the packages used except the meta-package
+cite_packages(output = "table", out.dir = ".")
+```
+
+\newpage
+
+# 8. References
