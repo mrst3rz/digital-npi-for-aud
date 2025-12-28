@@ -41,9 +41,17 @@ To reproduce the analyses and regenerate all results reported in the manuscript,
     cd digital-npi-for-aud
     ```
 
-2.  Restore the R package environment: `bash     renv::restore()`
+2.  Restore the R package environment:
 
-3.  Render the R Markdown document: `bash     rmarkdown::render("Meta-Analysis of Neuropsychological Interventions.Rmd")`
+    ``` bash
+    renv::restore()
+    ```
+
+3.  Render the R Markdown document:
+
+    ``` bash
+    rmarkdown::render("Meta-Analysis of Neuropsychological Interventions.Rmd")
+    ```
 
 ## Affiliation
 
