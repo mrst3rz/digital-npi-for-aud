@@ -21,6 +21,13 @@
 **/sources/
 **/cpp-definition-cache
 **/saved_source_markers
+C45F0C28/
+
+# Your specific workspace file (optional but explicit)
+env_meta_analysis.RData
+
+# Notebooks / rendered artifacts (choose what you want)
+shared/notebooks/
 
 # Quarto / Rmd build artefacts
 .quarto/
