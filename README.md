@@ -50,12 +50,16 @@ please follow these steps:
    ```bash
    git clone https://github.com/mrst3rz/digital-npi-for-aud.git
    cd digital-npi-for-aud
-
-2. renv::restore()
-
-3. rmarkdown::render(
-  "Meta-Analysis of Neuropsychological Interventions.Rmd"
-)
+    ```
+2. Restore:
+```bash
+   renv::restore()
+```
+4. Render:
+```bash
+  rmarkdown::render(
+  "Meta-Analysis of Neuropsychological Interventions.Rmd")
+```
 
 ## Affiliation
 
