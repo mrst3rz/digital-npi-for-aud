@@ -43,14 +43,14 @@ To reproduce the analyses and regenerate all results reported in the manuscript,
 
 2.  Restore the R package environment:
 
-    ``` r
+    ``` bash
     renv::restore()
     ```
 
 3.  Render the R Markdown document:
 
-    ``` r
-    rmarkdown::render("Meta-Analysis of Neuropsychological Interventions.Rmd")
+    ``` bash
+    render("Meta-Analysis of Neuropsychological Interventions.Rmd")
     ```
 
 ## Data availability
@@ -68,7 +68,7 @@ The data set used for the published meta-analysis can be made available upon req
 To enable programmatic access to OSF, set an OSF personal access token in your R session (do not commit the token):
 
 ````         
-``` r
+``` bash
 Sys.setenv(OSF_TOKEN = "your_personal_access_token")
 ```
 ````
@@ -79,7 +79,7 @@ This work was conducted in affiliation with the University of Southern Denmark.
 
 ## Citation
 
-If this code or workflow is used, please cite the corresponding manuscript and the archived version of this repository (doi.org/10.5281/zenodo.17206606), when applicable.
+If this code or workflow is used, please cite the corresponding manuscript and the archived version of this repository (<https://doi.org/10.5281/zenodo.17206606>), when applicable.
 
 ## License
 
