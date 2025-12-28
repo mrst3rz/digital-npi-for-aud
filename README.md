@@ -53,13 +53,31 @@ To reproduce the analyses and regenerate all results reported in the manuscript,
     rmarkdown::render("Meta-Analysis of Neuropsychological Interventions.Rmd")
     ```
 
+## Data availability
+
+The data used in the analyses are not stored directly in this repository.
+Instead, the workflow retrieves the required data sets programmatically from the Open Science Framework (OSF).
+
+Access to the data requires appropriate authorization and an OSF personal access token.
+Users with permission can reproduce the analyses by supplying their own OSF token as an environment variable prior to execution of the workflow.
+
+The data set used for the published meta-analysis can be made available upon request.
+
+### OSF authentication
+
+To enable programmatic access to OSF, set an OSF personal access token in your R session (do not commit the token):
+
+``` r
+Sys.setenv(OSF_TOKEN = "your_personal_access_token")
+```
+
 ## Affiliation
 
 This work was conducted in affiliation with the University of Southern Denmark.
 
 ## Citation
 
-If this code or workflow is used, please cite the corresponding manuscript and the archived version of this repository (Zenodo DOI), when applicable.
+If this code or workflow is used, please cite the corresponding manuscript and the archived version of this repository (doi.org/10.5281/zenodo.17206606), when applicable.
 
 ## License
 
