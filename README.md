@@ -37,10 +37,12 @@ The analyses require the following software:
 
 To reproduce the analyses and regenerate all results reported in the manuscript, please follow these steps:
 
-\<\<\<\<\<\<\< Updated upstream 1.
-Clone the repository: `bash    git clone https://github.com/mrst3rz/digital-npi-for-aud.git    cd digital-npi-for-aud` 2.
-Restore the R package environment: `bash    renv::restore()` 4.
-Render the R Markdown document: `bash    rmarkdown::render("Meta-Analysis of Neuropsychological Interventions.Rmd")`
+1.  Clone the repository:
+
+    ``` bash
+    git clone https://github.com/mrst3rz/digital-npi-for-aud.git
+    cd digital-npi-for-aud
+    ```
 
 ## Affiliation
 
