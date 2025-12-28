@@ -13,9 +13,6 @@ The repository includes all R-based analysis scripts, bibliographic resources, a
 -   `Meta-Analysis of Neuropsychological Interventions.Rmd`\
     Primary R Markdown document containing data preparation, statistical analyses, and manuscript text.
 
--   `shared/`\
-    Directory containing shared resources used across analyses, including extracted data files, helper scripts, and intermediate objects required for reproduction.
-
 -   `renv.lock`\
     File specifying the exact versions of R packages used in the analyses.
 
@@ -43,6 +40,10 @@ To reproduce the analyses and regenerate all results reported in the manuscript,
     git clone https://github.com/mrst3rz/digital-npi-for-aud.git
     cd digital-npi-for-aud
     ```
+
+2.  Restore the R package environment: `bash     renv::restore()`
+
+3.  Render the R Markdown document: `bash     rmarkdown::render("Meta-Analysis of Neuropsychological Interventions.Rmd")`
 
 ## Affiliation
 
