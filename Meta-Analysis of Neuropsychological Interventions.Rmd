@@ -7,14 +7,14 @@ output:
     fig_height: 6
     fig_caption: true
     reference_docx: template.docx
-  pdf_document:
-    latex_engine: xelatex
-    toc: true
   html_document:
     toc: true
     fig_width: 10
     fig_height: 6
     fig_caption: true
+  pdf_document:
+    latex_engine: xelatex
+    toc: true
 editor_options:
   chunk_output_type: inline
   markdown: 
@@ -1411,7 +1411,7 @@ The forest plot uses the BMJ layout (i.e., added weights for the individual stud
 A prediction interval is added to the pooled effect sizes.
 For the heterogeneity analyses, we report the Cochran's *Q* statistic, its *p*-value as well as the measure of absolute variance using $I^2$.
 
-```{r abs-6m-forest, fig.height=6, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the effects on abstinence"}
+```{r abs-6m-forest, fig.height=6, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the intermediate-term effects on abstinence"}
 # Now plot the forest plot again with new subgroup names
 forest(abs_metagen_6m,
        prediction = TRUE,
@@ -1535,7 +1535,7 @@ Now with the results from the Egger's test, we can now create the funnel plot us
 We can add the test statistic from the Egger's test to the funnel plot using mtext().
 As there is a high variability among these studies, we will need to adjust the limits of the x-axis so the studies can be better displayed.
 
-```{r abs-6m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot for studies with intermediate effects on abstinence"}
+```{r abs-6m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot for studies with intermediate-term effects on abstinence"}
 # Create a funnel plot with adjusted x-axis
 funnel(abs_metagen_6m,
        xlab = "Odds ratio",
@@ -1655,7 +1655,7 @@ print(red_metagen_6m)
 
 Now that we have created a list for the test statistics for each of the time points, we can create the final forest plot.
 
-```{r red-6m-forest, fig.height=5, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of short-, intermediate-, and long-term effects on alcohol reduction"}
+```{r red-6m-forest, fig.height=5, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of intermediate-term effects on alcohol reduction"}
 # Now plot the forest plot again with new subgroup names
 forest(red_metagen_6m,
        prediction = TRUE,
@@ -1696,7 +1696,7 @@ red_egger_6m <- metabias(red_metagen_6m, method.bias = "Egger", k.min = 2)
 
 We can now create the funnel plot and add the result of the Egger's test.
 
-```{r red-6m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot of studies with intermediate effects on alcohol reduction"}
+```{r red-6m-funnel-plot, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Funnel plot of studies with intermediate-term effects on alcohol reduction"}
 # Create a funnel plot for the 6 month time point
 funnel(red_metagen_6m,
        xlab = "Standardised Mean Difference",
@@ -1816,7 +1816,7 @@ print(crav_metagen_6m)
 
 Now that we have created a list for the test statistics for each of the time points, we can create the final forest plot.
 
-```{r crav-6m-forest, fig.height=6, fig.width=11, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of short-, intermediate-, and long-term effects on alcohol reduction"}
+```{r crav-6m-forest, fig.height=6, fig.width=11, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of intermediate-term effects on craving"}
 # Now plot the forest plot again with new subgroup names
 forest(crav_metagen_6m,
        prediction = TRUE,
@@ -2016,7 +2016,7 @@ abs_zp_subgroup_12m <- data.frame(
 
 Now that we have created a list for the test statistics for each of the time points, we can create the final forest plot.
 
-```{r abs-12m-forest, fig.height=5, fig.width=10, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the short-, intermediate-, and long-term effects on abstinence"}
+```{r abs-12m-forest, fig.height=5, fig.width=10, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot for the long-term effects on abstinence"}
 # Now plot the forest plot again with new subgroup names
 forest(abs_metagen_12m,
        prediction = TRUE,
@@ -2312,7 +2312,7 @@ abs_exp_subsplit_3m <- split(abs_exp_zp_subgroup_3m, abs_exp_zp_subgroup_3m$subg
 
 Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
 
-```{r abs-exp-3m-forest, fig.height=10, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+```{r abs-exp-3m-forest, fig.height=10, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the short-term effects on abstinence by individual intervention types"}
 # Now plot the forest plot again with new subgroup names
 forest(abs_exp_metagen_3m,
        prediction = TRUE,
@@ -2408,7 +2408,7 @@ As only approach bias modification programs were used among the identified studi
 
 Not possible to pool effects for other interventions than ApBM, thus the results are the same as for the main analyses.
 
-## 5.3 Short-term effects on alcohol craving by intervetion
+## 5.3 Short-term effects on alcohol craving by intervention
 
 To explore the short-term effects on craving by each intervention type, we use the assigned new variable names to the subgroups to create a visually more appealing forest plot.
 We use the labels for our intervention types: AtBM (Attentional bias modification), ApBM (Approach bias modification), ItBM (Inhibitory bias modification), ExRT (Executive function retraining), and WmRT (Working memory retraining).
@@ -2479,7 +2479,7 @@ crav_exp_subsplit_3m <- split(crav_exp_zp_subgroup_3m, crav_exp_zp_subgroup_3m$s
 
 Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
 
-```{r crav-exp-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+```{r crav-exp-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the short-term effects on craving by individual intervention type"}
 # Now plot the forest plot again with new subgroup names
 forest(crav_exp_metagen_3m,
        prediction = TRUE,
@@ -2590,7 +2590,7 @@ abs_exp_subsplit_6m <- split(abs_exp_zp_subgroup_6m, abs_exp_zp_subgroup_6m$subg
 
 Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
 
-```{r abs-exp-6m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+```{r abs-exp-6m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the intermediate-term effects on abstinence by individual intervention types"}
 # Now plot the forest plot again with new subgroup names
 forest(abs_exp_metagen_6m,
        prediction = TRUE,
@@ -2667,7 +2667,7 @@ As only approach bias modification programs were used among the identified studi
 
 Not possible to pool effects for other interventions than ApBM.
 
-## 5.7 Long-term effects on astinence by intervention
+## 5.7 Long-term effects on abstinence by intervention
 
 Now we can look at the final part of the exploratory analyses, by examining the long-term effects on abstinence by intervention type.
 First we define the intervention types and its levels.
@@ -2744,7 +2744,7 @@ abs_exp_subsplit_12m <- split(abs_exp_zp_subgroup_12m, abs_exp_zp_subgroup_12m$s
 
 Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
 
-```{r abs-exp-12m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the effects of individual subordinate domains on abstinence"}
+```{r abs-exp-12m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the long-term effects on abstinence by individual intervention type"}
 # Now plot the forest plot again with new subgroup names
 forest(abs_exp_metagen_12m,
        prediction = TRUE,
@@ -3154,7 +3154,8 @@ rob_d_se <- bind_rows(abs_d_rob, red_d_rob) %>%
   mutate(SE = as.numeric(SE))
 ```
 
-With a new data frame only including the outcomes extracted and rated from our unique studies, we can calculate the absolute and relative weights using the SE. After this, the relative weights can be added to the final RoB-summary data and exported as a new csv-file named "Weighted RoB Data".
+With a new data frame only including the outcomes extracted and rated from our unique studies, we can calculate the absolute and relative weights using the SE.
+After this, the relative weights can be added to the final RoB-summary data and exported as a new csv-file named "Weighted RoB Data".
 
 ```{r rob-weight-calc, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
 # Remove non-unique reports from rob_d first (so they don't appear in output)
@@ -3193,7 +3194,6 @@ if (any(is.na(rob_d_weighted$weight_percent))) {
 # 4) Export
 write.csv(rob_d_weighted, "Weighted RoB Data.csv", row.names = FALSE)
 ```
-
 
 Now we want to display the percentages, so that these can be reported in the manuscript.
 
