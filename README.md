@@ -1,4 +1,4 @@
-<a href="https://doi.org/10.5281/zenodo.17206606"><img src="https://zenodo.org/badge/1018696552.svg" alt="DOI"/></a>
+[![DOI](https://img.shields.io/badge/DOI-10.5281%2Fzenodo.17206606-blue)](https://doi.org/10.5281/zenodo.17206606)
 
 # Reproducible R Analyses of Digital Neuropsychological Interventions for Alcohol Use Disorder
 

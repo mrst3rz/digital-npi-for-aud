@@ -1,0 +1,250 @@
+## 1.3 Importing risk of bias data
+
+Before conducting the meta-analyses, we want to create two plots for the risk of bias (RoB) assessments for the included studies.
+We used the revised version of the risk of bias tool (RoB 2), and the plots adhere to the domains specified by @sterne2019.
+
+The first step to display the risk of bias results, requires that a separate data set is imported, and as this file is formatted as a csv-file, we can use the readr-package.
+
+```{r import-rob, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Importing csv-file containing the RoB data set
+rob_d <- read.csv(osf_rob_files$local_path, sep = ",", header = TRUE)
+```
+
+## 1.4 Displaying the risk of bias
+
+After the data set has been imported, we can create the traffic light plot using the function called rob_traffic_light(), which will display the individual ratings for each domain for each of the included studies.
+
+```{r traffic-plot, echo=TRUE, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Traffic plot of individual risk of bias ratings"}
+# Create a traffic plot displaying individual bias ratings
+traffic_plot <- rob_traffic_light(rob_d, tool = "ROB2", psize = 7)
+
+# Remove alternating grey row stripes
+traffic_plot$layers[[4]]$aes_params$fill <- "#ffffff"
+traffic_plot$layers[[4]]$aes_params$colour <- "#ffffff"
+
+# Slight nudge right for symbols (+, -, X) to centre within circles
+traffic_plot$layers[[2]]$position <- position_nudge(x = 0.0075)
+traffic_plot$layers[[7]]$position <- position_nudge(x = 0.0072, y = 0.01)
+
+# position_nudge only affects the plot, not the legend key, so override the
+# key drawing for the symbol layer to shift the symbol right to match the peas
+traffic_plot$layers[[2]]$geom <- ggproto("GeomPointNudge", GeomPoint,
+  draw_key = function(data, params, size) {
+    key <- draw_key_point(data, params, size)
+    key$x <- key$x + unit(0.4, "pt")
+    key
+  })
+
+# Restore black circle outline on the peas in the plot
+traffic_plot$layers[[6]]$aes_params$colour <- "black"
+
+# The legend key is built from layer 1 (the disc). Give it a fill-mapped,
+# black-ringed shape 21 so the key shows a colored pea WITH a black outline.
+# In the plot this layer sits under the larger size-7 disc (layer 5), so this
+# affects only the legend key, not the plotted peas.
+traffic_plot$layers[[1]]$mapping           <- aes(fill = judgement)
+traffic_plot$layers[[1]]$aes_params$shape  <- 21
+traffic_plot$layers[[1]]$aes_params$colour <- "black"
+traffic_plot$layers[[1]]$aes_params$stroke <- 0.5
+
+# Rename Overall to O in all data sources
+traffic_plot$data$domain[traffic_plot$data$domain == "Overall"] <- "OA"
+for (i in seq_along(traffic_plot$layers)) {
+  d <- traffic_plot$layers[[i]]$data
+  if (!is.null(d) && nrow(d) > 0 && "domain" %in% names(d)) {
+    traffic_plot$layers[[i]]$data$domain[d$domain == "Overall"] <- "OA"
+  }
+}
+rm(i, d)  # drop loop temporaries so they don't linger in the environment
+traffic_plot <- traffic_plot +
+  facet_grid(Study ~ factor(domain, levels = c("D1", "D2", "D3", "D4", "D5", "OA")),
+             switch = "y", space = "free")
+
+# Linewidth for plot lines, and a thinner one for the judgement box
+legend_lw <- 0.4
+legend_box_lw <- 0.25
+
+# Build the styled plot
+traffic_plot <- traffic_plot +
+  scale_y_continuous(limits = c(0.5, 1.5), labels = NULL, breaks = NULL,
+                     name = NULL, position = "left",
+                     # Symmetric expansion centres each pea in its cell so the top
+                     # row does not touch the header line (row spacing is unchanged)
+                     expand = expansion(add = c(0.15, 0.15))) +
+  scale_x_discrete(position = "top", name = NULL) +
+  labs(caption = NULL) +
+  scale_colour_manual(
+    values = c(h = "#BF0000", s = "#E2DF07", l = "#02C100",
+               n = "#4EA1F7", x = "#cccccc"),
+    breaks = c("h", "s", "l"),
+    labels = c("High risk", "Some concerns", "Low risk"),
+    name = "Judgement"
+  ) +
+  scale_shape_manual(
+    values = c(l = 43, s = 45, h = 120, n = 63, x = 32),
+    breaks = c("h", "s", "l"),
+    labels = c("High risk", "Some concerns", "Low risk"),
+    name = "Judgement"
+  ) +
+  # Fill scale drives the coloured disc in the legend key (see layer 1 above)
+  scale_fill_manual(
+    values = c(h = "#BF0000", s = "#E2DF07", l = "#02C100",
+               n = "#4EA1F7", x = "#cccccc"),
+    breaks = c("h", "s", "l"),
+    labels = c("High risk", "Some concerns", "Low risk"),
+    name = "Judgement"
+  ) +
+  guides(
+    # Hide the raw colour legend; the fill guide draws the ringed coloured pea
+    # and the shape guide overlays the +/-/x symbol on top of it.
+    colour = "none",
+    fill  = guide_legend(override.aes = list(size = 7),   direction = "vertical"),
+    shape = guide_legend(override.aes = list(size = 4.5), direction = "vertical")
+  ) +
+  theme(
+    strip.background.y = element_rect(fill = "white", colour = NA),
+    strip.background.x = element_rect(fill = "white", colour = NA),
+    strip.text.x = element_text(face = "bold", size = 10,
+                                 margin = margin(t = 2, b = 12, l = 0, r = 0)),
+    strip.text.y.left = element_text(angle = 0, size = 10, hjust = 0),
+    panel.border = element_blank(),
+    panel.spacing.x = unit(-3, "pt"),
+    panel.spacing.y = unit(0, "pt"),
+    legend.position = "bottom",
+    legend.direction = "vertical",
+    legend.justification = "right",
+    legend.margin = margin(t = 4, r = 6, b = 6, l = 6),
+    legend.box.margin = margin(t = 14, r = 0, b = 4, l = 0),
+    legend.background = element_rect(fill = "white", colour = "black",
+                                      linetype = "solid", linewidth = legend_box_lw),
+    legend.key = element_rect(fill = "white"),
+    legend.key.size = unit(1.0, "lines"),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 10, face = "plain")
+  )
+
+# Add header line, bottom line, and vertical separator via gtable.
+# Building the plot here is where ggplot2 raises a few advisory warnings
+# ("Duplicated override.aes", "All aesthetics have length 1...") caused by the
+# layer surgery above (re-mapping layer 1 to draw the ringed legend key). The
+# resulting plot is visually correct (verified), so these are expected and
+# suppressed at their source rather than hidden with a blanket chunk option.
+traffic_gt <- suppressWarnings(ggplot_gtable(ggplot_build(traffic_plot)))
+
+panel_layout <- traffic_gt$layout[grepl("^panel-", traffic_gt$layout$name), ]
+strip_l <- traffic_gt$layout[grepl("^strip-l", traffic_gt$layout$name), ]
+strip_t <- traffic_gt$layout[grepl("^strip-t", traffic_gt$layout$name), ]
+
+top_row <- min(strip_t$t)
+header_bottom <- max(strip_t$b)
+bottom_row <- max(panel_layout$b)
+left_col <- min(strip_l$l)
+right_col <- max(panel_layout$r)
+sep_col <- min(panel_layout$l)
+
+# Match legend box line thickness (convert ggplot2 mm to grid pt)
+line_col <- "black"
+line_lwd <- legend_box_lw * ggplot2::.pt
+
+# Nudge the horizontal frame lines away from the peas by a fixed amount
+gap_top <- unit(5, "pt")   # header line raised (also moves it toward the labels)
+gap_bot <- unit(8, "pt")   # bottom line lowered (away from the last pea row)
+
+# Header bottom line
+traffic_gt <- gtable::gtable_add_grob(traffic_gt,
+  grid::segmentsGrob(x0 = 0, x1 = 1, y0 = gap_top, y1 = gap_top,
+    gp = grid::gpar(col = line_col, lwd = line_lwd)),
+  t = header_bottom, b = header_bottom, l = left_col, r = right_col,
+  clip = "off", name = "header-bottom")
+
+# Bottom line below last study
+traffic_gt <- gtable::gtable_add_grob(traffic_gt,
+  grid::segmentsGrob(x0 = 0, x1 = 1,
+    y0 = unit(0, "npc") - gap_bot, y1 = unit(0, "npc") - gap_bot,
+    gp = grid::gpar(col = line_col, lwd = line_lwd)),
+  t = bottom_row, b = bottom_row, l = left_col, r = right_col,
+  clip = "off", name = "bottom-line")
+
+# Vertical separator between study labels and D1 (extended down to meet bottom line)
+traffic_gt <- gtable::gtable_add_grob(traffic_gt,
+  grid::segmentsGrob(x0 = 0, x1 = 0, y0 = unit(0, "npc") - gap_bot, y1 = 1,
+    gp = grid::gpar(col = line_col, lwd = line_lwd)),
+  t = top_row, b = bottom_row, l = sep_col, r = sep_col,
+  clip = "off", name = "vert-separator")
+
+grid::grid.newpage()
+grid::grid.draw(traffic_gt)
+```
+
+To display the summary of risk of bias across the domains including the overall risk of bias, we can create a new bar plot using the rob_summary() function.
+To begin with we set the weighted parameter to FALSE, as we will calculate the weights at the end of the report.
+
+```{r rob-summary, fig.height=5, fig.width=10, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Summary of risk of bias ratings"}
+# Create a summary (bar plot) of risk of bias assessments
+rob_summary_plot <- rob_summary(rob_d, tool = "ROB2", weighted = FALSE)
+
+# Replace full domain names with D1–D5 and O
+levels(rob_summary_plot$data$domain) <- c(
+  "Weights"                                            = "Weights",
+  "Overall risk of bias"                               = "OA",
+  "Bias in selection of the reported result"           = "D5",
+  "Bias in measurement of the outcome"                 = "D4",
+  "Bias due to missing outcome data"                   = "D3",
+  "Bias due to deviations from intended interventions" = "D2",
+  "Bias arising from the randomization process"        = "D1",
+  "Study"                                              = "Study"
+)
+
+# Custom styling
+rob_sum_styled <- rob_summary_plot +
+  theme(
+    axis.text.y    = element_text(face = "bold", size = 13, margin = margin(r = 10)),
+    axis.text.x    = element_text(size = 13),
+    axis.line.y    = element_line(colour = "black", linewidth = 0.4),
+    legend.text    = element_text(size = 12),
+    legend.title   = element_text(size = 12),
+    legend.position    = "bottom",
+    legend.direction   = "horizontal",
+    legend.justification = "center",
+    legend.background  = element_rect(fill = "white", colour = "black",
+                                      linetype = "solid", linewidth = 0.4),
+    legend.margin      = margin(6, 6, 6, 6),
+    legend.box.margin  = margin(5, 0, 5, 0)
+  ) +
+  # reverse = TRUE: Low risk first, High risk last; weighted bar plot will be created later
+  guides(fill = guide_legend(title = NULL, nrow = 1, reverse = TRUE))
+
+# Stretch the legend box to span the full figure width via gtable
+rob_sum_gt <- ggplotGrob(rob_sum_styled)
+
+leg_nms <- intersect(
+  rob_sum_gt$layout$name,
+  c("guide-box", "guide-box-bottom", "guide-box-top",
+    "guide-box-left", "guide-box-right", "guide-box-inside")
+)
+
+# Span full figure width (column 1 to last column)
+l_col <- 1L
+r_col <- ncol(rob_sum_gt)
+
+for (nm in leg_nms) {
+  idx   <- which(rob_sum_gt$layout$name == nm)
+  t_row <- rob_sum_gt$layout$t[idx]
+  b_row <- rob_sum_gt$layout$b[idx]
+
+  rob_sum_gt$layout$l[idx] <- l_col
+  rob_sum_gt$layout$r[idx] <- r_col
+
+  # Full-width background rectangle drawn behind the legend content
+  rob_sum_gt <- gtable::gtable_add_grob(
+    rob_sum_gt,
+    grid::rectGrob(gp = grid::gpar(fill = "white", col = "black",
+                                   lwd = 0.4 * ggplot2::.pt)),
+    t = t_row, b = b_row, l = l_col, r = r_col,
+    name = "legend-bg-full", z = min(rob_sum_gt$layout$z) - 1
+  )
+}
+# Display the plot
+grid.newpage()
+grid.draw(rob_sum_gt)
+```

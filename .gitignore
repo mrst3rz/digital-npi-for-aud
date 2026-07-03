@@ -32,9 +32,23 @@ shared/notebooks/
 # Quarto / Rmd build artefacts
 .quarto/
 _cache/
+cache/
 **/rmd-outputs/
+
+# Locally cached OSF project data (embargoed) and knitr backups
+data/
+*BACKUP_*.Rmd
+
+# Generated outputs (figures, data exports) and knitted reports
+outputs/
+reports/
+
+# grateful-generated bibliography (regenerated on each render; the manual
+# references.yaml and template.docx in assets/ stay tracked)
+assets/grateful-refs.bib
 
 # RenV
 renv/library/
 renv/python/
 renv/staging/
+.posit/assistant

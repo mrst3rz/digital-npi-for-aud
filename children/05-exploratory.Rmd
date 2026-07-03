@@ -1,0 +1,600 @@
+# 5. Exploratory intervention-specific analyses
+
+To explore the short-term effects on abstinence by each intervention type, we use the assigned new variable names to the subgroups to create a visually more appealing forest plot.
+We use the labels for our intervention types: AtBM (Attentional bias modification), ApBM (Approach bias modification), ItBM (Inhibitory bias modification), ExRT (Executive function retraining), and WmRT (Working memory retraining).
+
+```{r abs-exp-3m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_3m <- abs_d_full_3m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+## 5.1 Short-term effects on abstinence by intervention
+
+We conduct the exploratory analyses first on the short-term abstinence, which included the most studies.
+
+### 5.1.1 Meta-analysis on abstinence
+
+Now with the intervention labels, we can conduct the meta-analysis using metagen(), but this time set the parameter for subgroups to the label "intervention" and use the classic *z*-test for the random effects model.
+
+With the new subgroup names, we can pool the effects across studies and stratify by the cognitive systems targeted by the intervention used in each study.
+This is achieved by using metagen(), where we define our treatment effect (TE) as the lnOR and corresponding standard error of the treatment effect (seTE) as the SE of the lnOR.
+We apply a random effects model using REML and use a classic *z*-test.
+
+```{r abs-exp-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_exp_metagen_3m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_3m,
+                    subgroup = Intervention,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_exp_metagen_3m)
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r abs-exp-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_exp_zp_overall_3m <- data.frame(
+  lnOR = abs_exp_metagen_3m$TE.random,
+  lnOR_se = abs_exp_metagen_3m$seTE.random,
+  NNT = round(nnt(exp(abs_exp_metagen_3m$TE.random), p_c_abs_3m)),
+  z_value = abs_exp_metagen_3m$statistic.random,
+  p_value = abs_exp_metagen_3m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_exp_zp_subgroup_3m <- data.frame(
+  subgroup = abs_exp_metagen_3m$bylevs,
+  lnOR = abs_exp_metagen_3m$TE.random.w,
+  lnOR_se = abs_exp_metagen_3m$seTE.random.w,
+  NNT = round(nnt(exp(abs_exp_metagen_3m$TE.random.w), p_c_abs_3m)),
+  z_value = abs_exp_metagen_3m$statistic.random.w,
+  p_value = abs_exp_metagen_3m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-exp-3m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+abs_exp_subsplit_3m <- split(abs_exp_zp_subgroup_3m, abs_exp_zp_subgroup_3m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r abs-exp-3m-forest, fig.height=10, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the short-term effects on abstinence by individual intervention types"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+ # Right side: default BMJ columns
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for AtBM
+footer_atbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$AtBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$AtBM$p_value, digits = 2),
+    ", NNH = ", abs(abs_exp_subsplit_3m$AtBM$NNT) # Write NNH instead, as it is negative
+  )
+)
+
+# Add a footer for the test statistics of the effects for ItBM
+footer_itbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$ItBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$ItBM$p_value, digits = 2),
+    ", NNT = ", abs_exp_subsplit_3m$ItBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_3m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_3m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_3m$ApBM$p_value, digits = 2),
+    ", NNT = ", abs_exp_subsplit_3m$ApBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_3m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_3m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_3m$p_value, digits = 2),
+    ", NNT = ", abs_exp_zp_overall_3m$NNT
+  )
+)
+
+# Adjust the footer for the AtBM effect to the bottom left
+grid.text(footer_atbm_abs_3m, x = 0.076, y = 0.73,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ItBM effect to the bottom left
+grid.text(footer_itbm_abs_3m, x = 0.076, y = 0.51,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_3m, x = 0.076, y = 0.27,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_3m, x = 0.076, y = 0.035,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+## 5.2 Short-term effects on alcohol reduction by intervention
+
+As only approach bias modification programs were used among the identified studies, we do not need to re-run the analyses using a new subgroup parameter, and we can simply use the results from the main analyses.
+
+### 5.2.1 Meta-analysis on alcohol reduction
+
+Not possible to pool effects for other interventions than ApBM, thus the results are the same as for the main analyses.
+
+## 5.3 Short-term effects on alcohol craving by intervention
+
+To explore the short-term effects on craving by each intervention type, we use the assigned new variable names to the subgroups to create a visually more appealing forest plot.
+We use the labels for our intervention types: AtBM (Attentional bias modification), ApBM (Approach bias modification), ItBM (Inhibitory bias modification), ExRT (Executive function retraining), and WmRT (Working memory retraining).
+
+```{r crav-exp-3m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+crav_d_full_3m <- crav_d_full_3m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+Now with the intervention labels, we can conduct the meta-analysis using metagen(), but this time set the parameter for subgroups to the label "intervention" and use the classic *z*-test for the random effects model.
+
+With the new subgroup names, we can pool the effects across studies and stratify by the cognitive systems targeted by the intervention used in each study.
+
+This is achieved by using metagen(), where we define our treatment effect (TE) as the SMD and corresponding standard error of the treatment effect (seTE) as the SE of the SMD.
+We apply a random effects model using REML and use a classic *z*-test.
+
+```{r crav-exp-3m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+crav_exp_metagen_3m <- metagen(TE = SMD,
+                    seTE = SE,
+                    studlab = study,
+                    data = crav_d_full_3m,
+                    subgroup = Intervention,
+                    sm = "SMD",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(crav_exp_metagen_3m)
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r crav-exp-3m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+crav_exp_zp_overall_3m <- data.frame(
+  SMD = crav_exp_metagen_3m$TE.random,
+  SE = crav_exp_metagen_3m$seTE.random,
+  z_value = crav_exp_metagen_3m$statistic.random,
+  p_value = crav_exp_metagen_3m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+crav_exp_zp_subgroup_3m <- data.frame(
+  subgroup = crav_exp_metagen_3m$bylevs,
+  SMD = crav_exp_metagen_3m$TE.random.w,
+  SE = crav_exp_metagen_3m$seTE.random.w,
+  z_value = crav_exp_metagen_3m$statistic.random.w,
+  p_value = crav_exp_metagen_3m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r crav-exp-3m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+crav_exp_subsplit_3m <- split(crav_exp_zp_subgroup_3m, crav_exp_zp_subgroup_3m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r crav-exp-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the short-term effects on craving by individual intervention type"}
+# Now plot the forest plot again with new subgroup names
+forest(crav_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       subgroup = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD", 
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+
+```
+
+### 5.3.1 Meta-analysis on alcohol craving
+
+Insufficient data for analysis for intervention types.for each subgroup in the final forest plot, we can create a split of the data frame.
+
+## 5.4 Intermediate-term effects on abstinence by intervention
+
+Now we can look at the intermediate-term effects on abstinence by each intervention type.
+First we define the intervention types and its levels.
+
+```{r abs-exp-6m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_6m <- abs_d_full_6m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+### 5.4.1 Meta-analysis on abstinence
+
+Then we run a meta-analysis using this new subset of our abstinence data for 6 months.
+
+```{r abs-exp-6m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_exp_metagen_6m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_6m,
+                    subgroup = Intervention,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_exp_metagen_6m)
+```
+
+We can now calculate the baseline control risk for the intermediate-term effects by only including studies with categorical outcomes.
+
+```{r abs-exp-6m-ctrl-abs-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Abstinence rate risk difference across all studies on short-term effects
+p_c_exp_abs_6m <- with(abs_d_6m, sum(c_abs) / sum(c_n))
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r abs-exp-6m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_exp_zp_overall_6m <- data.frame(
+  lnOR = abs_exp_metagen_6m$TE.random,
+  lnOR_se = abs_exp_metagen_6m$seTE.random,
+  NNT = round(nnt(exp(abs_exp_metagen_6m$TE.random), p_c_exp_abs_6m)),
+  z_value = abs_exp_metagen_6m$statistic.random,
+  p_value = abs_exp_metagen_6m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_exp_zp_subgroup_6m <- data.frame(
+  subgroup = abs_exp_metagen_6m$bylevs,
+  lnOR = abs_exp_metagen_6m$TE.random.w,
+  lnOR_se = abs_exp_metagen_6m$seTE.random.w,
+  NNT = round(nnt(exp(abs_exp_metagen_6m$TE.random.w), p_c_exp_abs_6m)),
+  z_value = abs_exp_metagen_6m$statistic.random.w,
+  p_value = abs_exp_metagen_6m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-exp-6m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+abs_exp_subsplit_6m <- split(abs_exp_zp_subgroup_6m, abs_exp_zp_subgroup_6m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r abs-exp-6m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the intermediate-term effects on abstinence by individual intervention types"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_exp_metagen_6m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_6m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_6m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_6m$ApBM$p_value, digits = 2),
+    ", NNH > 100 "
+  )
+)
+
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_6m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_6m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_6m$p_value, digits = 2),
+    ", NNT = ", abs_exp_zp_overall_6m$NNT
+  )
+)
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_6m, x = 0.094, y = 0.43,
+          just = "left", gp = gpar(fontsize = 10))
+
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_6m, x = 0.094, y = 0.12,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+## 5.5 Intermediate-term effects on alcohol reduction by intervention
+
+As only approach bias modification programs were used among the identified studies, we do not need to re-run the analyses using a new subgroup parameter, and we can simply use the results from the main analyses on the intermediate-term outcome.
+
+### 5.5.1 Meta-analysis on alcohol reduction
+
+Not possible to pool effects for other interventions than ApBM.
+
+## 5.6 Intermediate-term effects on craving by intervention
+
+As only approach bias modification programs were used among the identified studies, we do not need to re-run the analyses using a new subgroup parameter, and we can simply use the results from the main analyses on the intermediate-term outcome.
+
+### 5.6.1 Meta-analysis on craving
+
+Not possible to pool effects for other interventions than ApBM.
+
+## 5.7 Long-term effects on abstinence by intervention
+
+Now we can look at the final part of the exploratory analyses, by examining the long-term effects on abstinence by intervention type.
+First we define the intervention types and its levels.
+
+```{r abs-exp-12m-assign, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Assigning new variable names to the subgroups
+abs_d_full_12m <- abs_d_full_12m %>%
+  rename(Intervention = intervention) %>%
+  mutate(
+    Intervention = factor(
+      Intervention,
+      levels = c("AtBM", "ItBM", "ApBM", "ExRT", "WmRT")
+    )
+  )
+```
+
+### 5.7.1 Meta-analysis on abstinence
+
+Then we run a meta-analysis using this new subset of our abstinence data for 12 months.
+
+```{r abs-exp-12m-metagen, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Run the meta-analysis stratified by cognitive systems and using the new labels
+abs_exp_metagen_12m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_12m,
+                    subgroup = Intervention,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Print the results of the meta-analysis
+print(abs_exp_metagen_12m)
+```
+
+We can now calculate the baseline control risk for the long-term effects by only including studies with categorical outcomes.
+
+```{r abs-exp-12m-ctrl-abs-rate, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Abstinence rate risk difference across all studies on short-term effects
+p_c_exp_abs_12m <- with(abs_d_12m, sum(c_abs) / sum(c_n))
+```
+
+It is now possible to extract the test statistics for the overall and subgroup effects, which can be used for the forest plot.
+
+```{r abs-exp-12m-zp-values, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Extract the test statistics for the overall effect and create a data frame
+abs_exp_zp_overall_12m <- data.frame(
+  lnOR = abs_exp_metagen_12m$TE.random,
+  lnOR_se = abs_exp_metagen_12m$seTE.random,
+  NNT = round(nnt(exp(abs_exp_metagen_12m$TE.random), p_c_abs_12m)),
+  z_value = abs_exp_metagen_12m$statistic.random,
+  p_value = abs_exp_metagen_12m$pval.random
+)
+
+# Extract the test statistics for the subgroup analysis and create a data frame
+abs_exp_zp_subgroup_12m <- data.frame(
+  subgroup = abs_exp_metagen_12m$bylevs,
+  lnOR = abs_exp_metagen_12m$TE.random.w,
+  lnOR_se = abs_exp_metagen_12m$seTE.random.w,
+  NNT = round(nnt(exp(abs_exp_metagen_12m$TE.random.w), p_c_abs_12m)),
+  z_value = abs_exp_metagen_12m$statistic.random.w,
+  p_value = abs_exp_metagen_12m$pval.random.w
+)
+```
+
+For an easier way to add the individual effect sizes for each subgroup in the final forest plot, we can create a split of the data frame.
+
+```{r abs-exp-12m-subgroup-split, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Split the previously defined data frame by each subordinate domain
+abs_exp_subsplit_12m <- split(abs_exp_zp_subgroup_12m, abs_exp_zp_subgroup_12m$subgroup)
+```
+
+Now that we have created a list for the test statistics for each of the subordinate domains, we can create the final forest plot.
+
+```{r abs-exp-12m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE, fig.cap="Forest plot of the long-term effects on abstinence by individual intervention type"}
+# Now plot the forest plot again with new subgroup names
+forest(abs_exp_metagen_12m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", 
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+
+
+# Add a footer for the test statistics of the effects for ItBM
+footer_itbm_abs_12m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_12m$ItBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_12m$ItBM$p_value, digits = 2),
+    ", NNH = ", abs(abs_exp_subsplit_12m$ItBM$NNT) # Write NNH instead as the number is negative
+  )
+)
+
+# Add a footer for the test statistics of the effects for ApBM
+footer_apbm_abs_12m <- paste0(
+  "Subgroup effect ",
+  paste0(
+    ": z = ", round(abs_exp_subsplit_12m$ApBM$z_value, 2),
+    ", p = ", formatC(abs_exp_subsplit_12m$ApBM$p_value, digits = 2),
+    ", NNT = ", abs_exp_subsplit_12m$ApBM$NNT
+  )
+)
+
+# Add a footer for the test statistics of the overall effects
+footer_over_abs_12m <- paste0(
+  "Overall effect ",
+  paste0(
+    ": z = ", round(abs_exp_zp_overall_12m$z_value, 2),
+    ", p = ", formatC(abs_exp_zp_overall_12m$p_value, digits = 2),
+    ", NNT = ", abs_exp_zp_overall_12m$NNT
+  )
+)
+
+# Adjust the footer for the ItBM effect to the bottom left
+grid.text(footer_itbm_abs_12m, x = 0.098, y = 0.56,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the ApBM effect to the bottom left
+grid.text(footer_apbm_abs_12m, x = 0.098, y = 0.174,
+          just = "left", gp = gpar(fontsize = 10))
+
+# Adjust the footer for the overall effect to the bottom left
+grid.text(footer_over_abs_12m, x = 0.098, y = 0.05,
+          just = "left", gp = gpar(fontsize = 10))
+
+```
+
+## 5.8 Long-term effects on alcohol reduction by intervention
+
+As only one study was identified examining long-term outcomes on alcohol reduction, the exploratory analysis by intervention type could not be performed.
+
+### 5.8.1 Meta-analysis on alcohol reduction
+
+Meta-analysis was not performed due to insufficient studies.
+
+## 5.9 Long-term effects on craving by intervention
+
+As only one study was identified examining long-term outcomes on craving, the exploratory analysis by intervention type could not be performed.
+
+### 5.9.1 Meta-analysis on craving
+
+Meta-analysis was not performed due to insufficient studies.
+

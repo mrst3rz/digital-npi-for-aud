@@ -20,7 +20,6 @@ PackageInstallArgs: --no-multiarch --with-keep.source
 PackageRoxygenize: rd,collate,namespace,vignette
 
 QuitChildProcessesOnExit: Yes
-DisableExecuteRprofile: Yes
 
 MarkdownWrap: Sentence
 MarkdownReferences: Document
@@ -30,4 +29,4 @@ ZoteroLibraries: "My Library"
 
 SpellingDictionary: en_US
 
-ProjectName: R Meta-analyses
+ProjectName: Meta-analyses

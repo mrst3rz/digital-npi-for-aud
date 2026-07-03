@@ -1,0 +1,1277 @@
+# 6. Exports of data and visual plots
+
+In this final section, we extract the calculated effect sizes as a new Excel spreadsheet named "Calculated Effect Sizes", which can be uploaded to a repository or as supplementary material for publication.
+Then we will be calculating the weights for the RoB-summary and exporting it as a new csv-file.
+Finally, we export the weighted RoB-summary plot and some of the forest plots of our meta-analyses in high resolution, which will be needed for the final manuscript.
+
+## 6.1 Data export
+
+For keeping our original terminology for our extracted data, we want to export our data set with the calculated effect sizes with an additional column containing the study ID, which refers to separate reports of the same study that is defined by a combination of a number and a letter (i.e., denoting a certain report for a specific time point).
+
+First, we merge all data frames containing the calculated effect sizes for abstinence, alcohol reduction, and craving into one list of study labels.
+
+```{r merge-abs-data, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Define function to fix the data types for the abs data frames
+fix_abs_types <- function(df) {
+  df %>%
+    mutate(across(
+      any_of(c(
+        "total_n",
+        "c_n", "c_abs", "c_non_abs",
+        "e_n", "e_abs", "e_non_abs"
+      )),
+      ~ suppressWarnings(as.numeric(.))
+    ))
+}
+# Fix data frames before merging
+abs_d_full_3m  <- fix_abs_types(abs_d_full_3m)
+abs_d_full_6m  <- fix_abs_types(abs_d_full_6m)
+abs_d_full_12m <- fix_abs_types(abs_d_full_12m)
+
+# Combine all data frames
+abs_d_full_012m <- bind_rows(
+  abs_d_full_3m,
+  abs_d_full_6m,
+  abs_d_full_12m
+) %>%
+  arrange(time_point, `Cognitive system`, Intervention, study) %>%
+  mutate(row_id = row_number()) %>%
+  rename(
+    system = `Cognitive system`,
+    intervention = Intervention
+  )
+
+# ALCOHOL REDUCTION DATA FRAMES
+# Define function to fix the data types for the red data frames
+fix_red_types <- function(df) {
+  df %>%
+    mutate(across(
+      any_of(c(
+        # counts / sample sizes
+        "total_n", "c_n", "e_n",
+        # continuous outcome descriptives (if present)
+        "c_mean", "e_mean", "c_sd", "e_sd",
+        # effect-size columns (if present)
+        "SMD", "SE", "LCI", "UCI",
+        "lnOR", "SElnOR", "lnLCI", "lnUCI",
+        "OR", "OrSE", "OrLCI", "OrUCI",
+        "z_value", "p_value"
+      )),
+      ~ suppressWarnings(as.numeric(.))
+    ))
+}
+# Fix data frames before merging
+red_d_full_3m  <- fix_red_types(red_d_full_3m)
+red_d_full_6m  <- fix_red_types(red_d_full_6m)
+red_d_full_12m <- fix_red_types(red_d_full_12m)
+
+# Combine all data frames
+red_d_full_012m <- bind_rows(
+  red_d_full_3m,
+  red_d_full_6m,
+  red_d_full_12m
+) %>%
+  arrange(time_point, system, intervention, study) %>%
+  mutate(row_id = row_number())
+
+# CRAVING DATA FRAMES
+# Define function to fix the data types for the crav data frames
+fix_crav_types <- function(df) {
+  df %>%
+    mutate(across(
+      any_of(c(
+        "total_n", "c_n", "e_n",
+        "c_mean", "e_mean", "c_sd", "e_sd",
+        "SMD", "SE", "LCI", "UCI",
+        "lnOR", "SElnOR", "lnLCI", "lnUCI",
+        "OR", "OrSE", "OrLCI", "OrUCI",
+        "z_value", "p_value"
+      )),
+      ~ suppressWarnings(as.numeric(.))
+    ))
+}
+# Fix data frames before merging
+crav_d_full_3m  <- fix_crav_types(crav_d_full_3m)
+crav_d_full_6m  <- fix_crav_types(crav_d_full_6m)
+crav_d_full_12m <- fix_crav_types(crav_d_full_12m)
+# Combine all data frames
+crav_d_full_012m <- bind_rows(
+  crav_d_full_3m,
+  crav_d_full_6m,
+  crav_d_full_12m
+) %>%
+  arrange(time_point, system, intervention, study) %>%
+  mutate(row_id = row_number())
+
+```
+
+Secondly, we define a new list reversing the previously defined study labels.
+
+```{r define-old-study-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Swap names and values
+base_ids <- sub("^([0-9]+)[a-z]_(.*)$", "\\1_\\2", names(study_labels))
+
+# Now build reversed mapping: from APA label -> base ID (e.g. "Dubuson et al. (2021)" -> "3_dubuson_2021")
+study_labels_reversed <- setNames(base_ids, study_labels)
+```
+
+Now we can create a list that determines the correct study ID based on the combination of base ID and time point.
+
+```{r old-labels-list, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Function to add study ID labels based on time point
+time_map  <-  tribble(
+  ~base_id,              ~time_point,     ~study_id,
+
+  # 1 — Chen
+  "1_chen_2022",         "6 months",       "1_chen_2022",
+
+  # 2 — Uyl
+  "2_uyl_2018",          "0–3 months",     "2a_uyl_2018",
+  "2_uyl_2018",          "12 months",      "2b_uyl_2018",
+
+  # 3 — Dubuson
+  "3_dubuson_2021",      "0–3 months",     "3c_dubuson_2021",
+  "3_dubuson_2021",      "6 months",       "3d_dubuson_2021",
+  "3_dubuson_2021",      "12 months",      "3e_dubuson_2021",
+
+  # 4 — Eberl
+  "4_eberl_2013",        "12 months",      "4_eberl_2013",
+
+  # 5 — Manning 2022 (+ Garfield 2022)
+  "5_manning_2022",      "0–3 months",     "5b_manning_2022",
+  "5_manning_2022",      "6 months",       "5c_manning_2022",
+  "5_manning_2022",      "12 months",      "5d_manning_2022",
+
+  "5_garfield_2022",     "0–3 months",     "5f_garfield_2022",
+  "5_garfield_2022",     "12 months",      "5h_garfield_2022",
+
+  # 6 — Grieder
+  "6_grieder_2022",      "0–3 months",     "6_grieder_2022",
+
+  # 7 — Garfield 2026
+  "7_garfield_2026",     "0–3 months",     "7c_garfield_2026",
+
+  # 8 — Kvamme
+  "8_kvamme_2019",       "0–3 months",     "8b_kvamme_2019",
+
+  # 9 — Kumar
+  "9_kumar_2019",        "0–3 months",     "9b_kumar_2019",
+  "9_kumar_2019",        "6 months",       "9c_kumar_2019",
+
+  # 10 — Laurens
+  "10_laurens_2023",     "0–3 months",     "10b_laurens_2023",
+  "10_laurens_2023",     "6 months",       "10c_laurens_2023",
+
+  # 11 — Manning 2016
+  "11_manning_2016",     "0–3 months",     "11_manning_2016",
+
+  # 12 — Peerenboom
+  "12_peerenboom_2022",  "0–3 months",     "12a_peerenboom_2022",
+  "12_peerenboom_2022",  "12 months",      "12b_peerenboom_2022",
+
+  # 13 — Rinck
+  "13_rinck_2018",       "12 months",      "13a_rinck_2018",
+
+  # 14 — Schenkel 2023
+  "14_schenkel_2023",    "0–3 months",     "14a_schenkel_2023",
+  "14_schenkel_2023",    "12 months",      "14b_schenkel_2023",
+
+  # 15 — Schenkel 2024
+  "15_schenkel_2024",    "0–3 months",     "15a_schenkel_2024",
+  "15_schenkel_2024",    "6 months",       "15b_schenkel_2024",
+  "15_schenkel_2024",    "12 months",      "15c_schenkel_2024",
+
+  # 16 — Schoenmakers
+  "16_schoenmakers_2010","0–3 months",     "16b_schoenmakers_2010",
+
+  # 17 — Stein
+  "17_stein_2023",       "0–3 months",     "17b_stein_2023",
+
+  # 18 — Wiers
+  "18_wiers_2011",       "0–3 months",     "18a_wiers_2011",
+  "18_wiers_2011",       "12 months",      "18b_wiers_2011",
+
+  # 19 — Spruyt
+  "19_spruyt_2025",      "0–3 months",     "19a_spruyt_2025",
+  "19_spruyt_2025",      "6 months",       "19b_spruyt_2025",
+  "19_spruyt_2025",      "12 months",      "19c_spruyt_2025",
+
+  # 20 — Mistarz
+  "20_mistarz_2025",     "0–3 months",     "20a_mistarz_2025",
+  "20_mistarz_2025",     "6 months",       "20b_mistarz_2025",
+
+  # 21 — Salemink
+  "21_salemink_2022",    "12 months",      "21_salemink_2022"
+)
+
+```
+
+Now we can create a function that applies the correct study labels to each of the three data frames based on the time point and base ID.
+
+```{r study-labels-function, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Function to apply study labels based on time point
+apply_study_labels <- function(df, time_map, study_labels_reversed) {
+
+  df %>%
+    # Standardize time_point so it matches the keys in time_map
+    mutate(
+      time_point = case_when(
+        time_point %in% c("0-3 months", "0 – 3 months", "0 –3 months") ~ "0–3 months",
+        TRUE ~ time_point
+      )
+    ) %>%
+    # base_id from APA label; if study is already a code, this will be NA
+    mutate(base_id = study_labels_reversed[study]) %>%
+    # join on base_id + time_point
+    left_join(time_map, by = c("base_id", "time_point")) %>%
+    mutate(
+      # If a mapping exists, use study_id;
+      # otherwise keep the original study value (this protects 5d_manning_2022, 5h_garfield_2022, etc.)
+      study = if_else(!is.na(study_id), study_id, study)
+    ) %>%
+    select(-base_id, -study_id)
+}
+
+```
+
+Now we can apply this function to all three data frames containing the calculated effect sizes.
+
+```{r apply-study-labels, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Apply the function to each data frame
+abs_d_full_012m  <- apply_study_labels(abs_d_full_012m,  time_map, study_labels_reversed)
+crav_d_full_012m <- apply_study_labels(crav_d_full_012m, time_map, study_labels_reversed)
+red_d_full_012m  <- apply_study_labels(red_d_full_012m,  time_map, study_labels_reversed)
+
+```
+
+The last step is to export all the data frames into one Excel sheet, but categorized by "Abstinence", "Reduction" and "Craving", which will all have their own sheet.
+We ensure that previously defined data frame for abs does not contain characters, which is achieved by converting the data columns.
+
+```{r export-effect-sizes, echo=FALSE, message=FALSE, warning=FALSE, include=TRUE}
+# Specify the columns you want to convert
+cols_to_convert <- c("c_n", "c_abs", "c_non_abs", "e_n", "e_abs", "e_non_abs")
+
+# Convert them to numeric (safely even if they are currently character)
+abs_d_full_012m[cols_to_convert] <- lapply(abs_d_full_012m[cols_to_convert], function(x) suppressWarnings(as.numeric(as.character(x))))
+
+# Create a new Excel workbook
+exp_full_d <- createWorkbook()
+
+# Add and write data to the first sheet: Abstinence
+addWorksheet(exp_full_d, "Abstinence")
+writeData(exp_full_d, sheet = "Abstinence", abs_d_full_012m)
+
+# Add and write data to the second sheet: Reduction
+addWorksheet(exp_full_d, "Reduction")
+writeData(exp_full_d, sheet = "Reduction", red_d_full_012m)
+
+# Add and write data to the first sheet: Craving
+addWorksheet(exp_full_d, "Craving")
+writeData(exp_full_d, sheet = "Craving", crav_d_full_012m)
+
+# Save the workbook
+saveWorkbook(exp_full_d, file = here::here("outputs", "data", "Calculated Effect Sizes.xlsx"), overwrite = TRUE)
+```
+
+Now we can turn to exporting the final data set for weighted RoB-summary.
+First, we will need to extract the unique studies used for our main analyses.
+
+```{r rob-final-extraction, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Define study IDs for abs
+abs_rob <- c(
+            "1_chen_2022",
+            "2b_uyl_2018",
+            "3e_dubuson_2021",
+            "4_eberl_2013",
+            "5d_manning_2022",
+            "6_grieder_2022",
+            "8b_kvamme_2019",
+            "9c_kumar_2019",
+            "11_manning_2016",
+            "12b_peerenboom_2022",
+            "13a_rinck_2018",
+            "14b_schenkel_2023",
+            "15c_schenkel_2024",
+            "16b_schoenmakers_2010",
+            "17b_stein_2023",
+            "18b_wiers_2011",
+            "19c_spruyt_2025",
+            "20b_mistarz_2025",
+            "21_salemink_2022"
+)
+
+# Define study IDs for alcohol reduction
+red_rob <- c(
+  "7c_garfield_2026", "10c_laurens_2023"
+)
+
+# Filter and select only needed columns in the data frame for abs
+abs_d_rob <- abs_d_full_012m %>%
+  filter(study %in% abs_rob) %>%
+  select(study, SE)
+
+# Filter and select only needed columns in the data frame for alcohol reduction
+red_d_rob <- red_d_full_012m %>%
+  filter(study %in% red_rob) %>%
+  select(study, SE)
+
+# Combine the two sets
+rob_d_se <- bind_rows(abs_d_rob, red_d_rob) %>%
+  mutate(SE = suppressWarnings(as.numeric(SE)))
+```
+
+With a new data frame only including the outcomes extracted and rated from our unique studies, we can calculate the absolute and relative weights using the SE.
+After this, the relative weights can be added to the final RoB-summary data and exported as a new csv-file named "Weighted RoB Data".
+
+```{r rob-weight-calc, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Remove non-unique reports from rob_d first (so they don't appear in output)
+rob_d_unique <- rob_d %>%
+  dplyr::filter(!Study %in% c("Garfield et al. (2022)*", "Manning et al. (2021)*", "Peerenboom et al. (2026)*"))
+
+# 1) Build weights keyed by BASE study id from rob_d_se (coded ids like 3c_dubuson_2021)
+rob_weights_base <- rob_d_se %>%
+  dplyr::mutate(
+    base_id = sub("^([0-9]+)[a-z]_(.*)$", "\\1_\\2", study),
+    SE = suppressWarnings(as.numeric(SE))
+  ) %>%
+  dplyr::filter(!is.na(SE), SE > 0) %>%
+  dplyr::group_by(base_id) %>%
+  dplyr::summarise(weight = sum(1 / (SE^2)), .groups = "drop") %>%
+  dplyr::mutate(weight_percent = 100 * weight / sum(weight)) %>%
+  dplyr::select(base_id, weight_percent)
+
+# 2) Join weights onto RoB table using APA Study label -> base_id mapping, but do NOT keep helper columns
+rob_d_weighted <- rob_d_unique %>%
+  dplyr::mutate(
+    join_base_id = unname(study_labels_reversed[gsub("\\*$", "", Study)])
+  ) %>%
+  dplyr::left_join(
+    rob_weights_base,
+    by = c("join_base_id" = "base_id")
+  ) %>%
+  dplyr::select(-join_base_id)
+
+# 3) Optional diagnostic: show which studies didn't get a weight (if any)
+if (any(is.na(rob_d_weighted$weight_percent))) {
+  message("These studies did not receive a weight (label mismatch or missing SE):")
+  print(rob_d_weighted %>% dplyr::filter(is.na(weight_percent)) %>% dplyr::distinct(Study))
+}
+
+# 4) Export
+write.csv(rob_d_weighted, here::here("outputs", "data", "Weighted RoB Data.csv"), row.names = FALSE)
+```
+
+Now we want to display the percentages, so that these can be reported in the manuscript.
+We report two versions: the unweighted percentages (each study counts equally) and the weighted percentages (each study weighted by its inverse-variance meta-analytic weight), the latter matching the weighted risk of bias summary figure.
+
+We first calculate the unweighted percentages, where each study contributes equally regardless of its precision.
+
+```{r rob-summary-pct, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Unweighted percentages: each study counts equally (simple counts)
+rob_pct <- rob_d_weighted %>%
+  pivot_longer(cols = D1:Overall, names_to = "Domain", values_to = "Judgment")
+
+# Label domains and enforce correct domain order using factor
+rob_labels <- c(
+  D1 = "Randomization process",
+  D2 = "Deviations from intended interventions",
+  D3 = "Missing outcome data",
+  D4 = "Measurement of the outcome",
+  D5 = "Selection of the reported result",
+  Overall = "Overall risk of bias"
+)
+
+# Use the label values to define order
+domain_order <- rob_labels %>% unname()
+rob_pct <- rob_pct %>%
+  mutate(
+    Domain = recode(Domain, !!!rob_labels),
+    Domain = factor(Domain, levels = domain_order),
+    Judgment = factor(Judgment, levels = c("Low", "Some concerns", "High"))
+  )
+
+# Count and calculate percentage
+rob_pct_summary <- rob_pct %>%
+  group_by(Domain, Judgment) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(Domain) %>%
+  mutate(Percent = round(n / sum(n) * 100, 1))
+
+# Wide format summary table
+rob_pct_summary <- rob_pct_summary %>%
+  select(Domain, Judgment, Percent) %>%
+  pivot_wider(names_from = Judgment, values_from = Percent, values_fill = 0)
+
+# Print the ordered summary table
+print(rob_pct_summary)
+```
+
+We then calculate the weighted percentages, where each study is weighted by its inverse-variance meta-analytic weight.
+These percentages correspond to the weighted risk of bias summary figure and, unlike the unweighted table above, exclude studies that did not contribute a weight.
+
+```{r rob-summary-pct-weighted, echo=TRUE, message=FALSE, warning=FALSE, include=TRUE}
+# Weighted percentages: each study weighted by its meta-analytic weight
+rob_pct_w <- rob_d_weighted %>%
+  dplyr::filter(!is.na(weight_percent)) %>%
+  pivot_longer(cols = D1:Overall, names_to = "Domain", values_to = "Judgment") %>%
+  mutate(
+    Domain = recode(Domain, !!!rob_labels),
+    Domain = factor(Domain, levels = domain_order),
+    Judgment = factor(Judgment, levels = c("Low", "Some concerns", "High"))
+  )
+
+# Sum the study weights per judgement within each domain, then convert to a
+# percentage of the domain's total weight
+rob_pct_w_summary <- rob_pct_w %>%
+  group_by(Domain, Judgment) %>%
+  summarise(weight = sum(weight_percent), .groups = "drop") %>%
+  group_by(Domain) %>%
+  mutate(Percent = round(100 * weight / sum(weight), 1))
+
+# Wide format summary table
+rob_pct_w_summary <- rob_pct_w_summary %>%
+  select(Domain, Judgment, Percent) %>%
+  pivot_wider(names_from = Judgment, values_from = Percent, values_fill = 0)
+
+# Print the ordered weighted summary table
+print(rob_pct_w_summary)
+```
+
+## 6.2 Figure export
+
+In this section we export some of the figures displayed in this report.
+As the final manuscript will not include all of the figures displayed in this report, we only want to create high resolution exports for the files used in the manuscript.
+The remaining plots and figures will be added to the supplementary material in a word-file using the images created by `knitr` and the corresponding knitted word-document.
+We will export six manuscript figures (fig_2 through fig_7) plus two supplementary figures.
+The manuscript figures follow the naming convention "fig_x\_", and as a flow-chart is included as the first figure in the manuscript, the figures start with "fig_2\_".
+The supplementary figures follow the naming convention "fig_Sx\_" and comprise the traffic light plot (S1) and the weighted risk of bias summary (S2).
+
+We first export the traffic light plot of the individual RoB-ratings.
+As this figure is not used in the manuscript, it is exported as supplementary figure S1.
+
+```{r export-rob-traffic, echo=FALSE, fig.height=8, fig.width=8, message=FALSE, warning=FALSE, include=TRUE}
+# Export the RoB traffic light plot (Figure S1, supplementary material)
+tiff(here::here("outputs", "figures", "fig_S1_rob_traffic_plot.tiff"), width = 8, height = 8, units = "in", res = 600)
+grid::grid.newpage()
+grid::grid.draw(traffic_gt)
+invisible(dev.off())
+```
+
+We then export the unweighted summary of the RoB-assessment across all domains.
+This is the summary reported in the manuscript, and it will be exported as figure 2.
+
+```{r export-rob-summary, echo=FALSE, fig.height=4, fig.width=8, message=FALSE, warning=FALSE, include=TRUE}
+# Export the Unweighted RoB summary plot (Figure 2 in final manuscript)
+tiff(here::here("outputs", "figures", "fig_2_rob_summary_plot.tiff"), width = 8, height = 4, units = "in", res = 600)
+grid.newpage()
+grid.draw(rob_sum_gt)
+invisible(dev.off())
+```
+
+We also export the weighted summary as supplementary figure S2, where each study is weighted by its inverse-variance meta-analytic weight, so the bars reflect the studies' contribution to the pooled estimates rather than a simple study count.
+
+```{r export-rob-summary-weighted, echo=FALSE, fig.height=4, fig.width=10, message=FALSE, warning=FALSE, include=TRUE}
+# Export the weighted RoB summary plot (Figure S2, supplementary material)
+rob_d_weighted_plot <- rob_d_weighted %>%
+  dplyr::filter(!is.na(weight_percent))
+
+# Weighted summary bar plot
+rob_summary_weighted <- rob_summary(rob_d_weighted_plot, tool = "ROB2", weighted = TRUE)
+
+# Replace full domain names with D1–D5 and OA
+levels(rob_summary_weighted$data$domain) <- c(
+  "Weights"                                            = "Weights",
+  "Overall risk of bias"                               = "OA",
+  "Bias in selection of the reported result"           = "D5",
+  "Bias in measurement of the outcome"                 = "D4",
+  "Bias due to missing outcome data"                   = "D3",
+  "Bias due to deviations from intended interventions" = "D2",
+  "Bias arising from the randomization process"        = "D1",
+  "Study"                                              = "Study"
+)
+# Custom style
+rob_sum_weighted_styled <- rob_summary_weighted +
+  theme(
+    axis.text.y    = element_text(face = "bold", size = 13, margin = margin(r = 10)),
+    axis.text.x    = element_text(size = 13),
+    axis.line.y    = element_line(colour = "black", linewidth = 0.4),
+    legend.text    = element_text(size = 12),
+    legend.title   = element_text(size = 12),
+    legend.position    = "bottom",
+    legend.direction   = "horizontal",
+    legend.justification = "center",
+    legend.background  = element_rect(fill = "white", colour = "black",
+                                      linetype = "solid", linewidth = 0.4),
+    legend.margin      = margin(6, 6, 6, 6),
+    legend.box.margin  = margin(5, 0, 5, 0)
+  ) +
+  # reverse = TRUE: Low risk first, High risk last
+  guides(fill = guide_legend(title = NULL, nrow = 1, reverse = TRUE))
+
+# Stretch the legend box to span the full figure width via gtable
+rob_sum_weighted_gt <- ggplotGrob(rob_sum_weighted_styled)
+
+leg_nms <- intersect(
+  rob_sum_weighted_gt$layout$name,
+  c("guide-box", "guide-box-bottom", "guide-box-top",
+    "guide-box-left", "guide-box-right", "guide-box-inside")
+)
+
+# Span full figure width (column 1 to last column)
+l_col <- 1L
+r_col <- ncol(rob_sum_weighted_gt)
+
+for (nm in leg_nms) {
+  idx   <- which(rob_sum_weighted_gt$layout$name == nm)
+  t_row <- rob_sum_weighted_gt$layout$t[idx]
+  b_row <- rob_sum_weighted_gt$layout$b[idx]
+
+  rob_sum_weighted_gt$layout$l[idx] <- l_col
+  rob_sum_weighted_gt$layout$r[idx] <- r_col
+
+  # Full-width background rectangle drawn behind the legend content
+  rob_sum_weighted_gt <- gtable::gtable_add_grob(
+    rob_sum_weighted_gt,
+    grid::rectGrob(gp = grid::gpar(fill = "white", col = "black",
+                                   lwd = 0.4 * ggplot2::.pt)),
+    t = t_row, b = b_row, l = l_col, r = r_col,
+    name = "legend-bg-full", z = min(rob_sum_weighted_gt$layout$z) - 1
+  )
+}
+
+# Export as high-resolution TIFF (Figure S2, supplementary material)
+tiff(here::here("outputs", "figures", "fig_S2_rob_summary_weighted.tiff"), width = 8, height = 4, units = "in", res = 600)
+grid.newpage()
+grid.draw(rob_sum_weighted_gt)
+invisible(dev.off())
+```
+
+We then export our forest plots, and as most of our identified studies included abs, we will only export the forest plots for our main, secondary, and tertiary analyses for abs.
+The plots for alcohol reduction and craving will be included in the supplementary material.
+
+The first forest plot for our main analysis on short-term effects on abstinence, with the integrated risk of bias ratings, will be exported as figure 3.
+
+```{r export-abs-3m-cog-rob, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Match 3m studies to RoB ratings
+rob_3m_match <- rob_d %>%
+  dplyr::mutate(Study_clean = gsub("\\*$", "", Study)) %>%
+  dplyr::filter(Study_clean %in% abs_metagen_3m$studlab) %>%
+  dplyr::distinct(Study_clean, .keep_all = TRUE)
+rob_3m_match <- rob_3m_match[match(abs_metagen_3m$studlab, rob_3m_match$Study_clean), ]
+# Custom style
+abs_metagen_3m_rob <- rob(
+  item1   = rob_3m_match$D1,
+  item2   = rob_3m_match$D2,
+  item3   = rob_3m_match$D3,
+  item4   = rob_3m_match$D4,
+  item5   = rob_3m_match$D5,
+  overall = rob_3m_match$Overall,
+  studlab = rob_3m_match$Study_clean,
+  tool    = "RoB2",
+  data    = abs_metagen_3m,
+  overwrite = TRUE,
+  domains = c("D1", "D2", "D3", "D4", "D5"),
+  col     = c("#02C100", "#E2DF07", "#BF0000"),
+  symbols = c("+", "-", "x"),
+  legend  = FALSE
+)
+# Domain names
+names(abs_metagen_3m_rob$rob) <- gsub("^A$", "D1", names(abs_metagen_3m_rob$rob))
+names(abs_metagen_3m_rob$rob) <- gsub("^B$", "D2", names(abs_metagen_3m_rob$rob))
+names(abs_metagen_3m_rob$rob) <- gsub("^C$", "D3", names(abs_metagen_3m_rob$rob))
+names(abs_metagen_3m_rob$rob) <- gsub("^D$", "D4", names(abs_metagen_3m_rob$rob))
+names(abs_metagen_3m_rob$rob) <- gsub("^E$", "D5", names(abs_metagen_3m_rob$rob))
+for (attr_name in c("symbols", "col", "categories")) {
+  a <- attr(abs_metagen_3m_rob$rob, attr_name)
+  if (!is.null(a) && !is.null(names(a))) {
+    names(a) <- gsub("^A$", "D1", names(a))
+    names(a) <- gsub("^B$", "D2", names(a))
+    names(a) <- gsub("^C$", "D3", names(a))
+    names(a) <- gsub("^D$", "D4", names(a))
+    names(a) <- gsub("^E$", "D5", names(a))
+    attr(abs_metagen_3m_rob$rob, attr_name) <- a
+  }
+}
+
+# Prepare the final forest plot
+tiff(here::here("outputs", "figures", "fig_3_abs_short_forest_rob.tiff"), width = 13.5, height = 7.5, units = "in", res = 600)
+forest(abs_metagen_3m_rob,
+       prediction          = TRUE,
+       prediction.subgroup = FALSE,
+       layout              = "BMJ",
+       subgroup            = TRUE,
+       overall             = TRUE,
+       random              = TRUE,
+       common              = FALSE,
+       test.subgroup       = FALSE,
+       print.stat          = FALSE,
+       print.I2            = TRUE,
+       print.Q             = TRUE,
+       print.pval.Q        = TRUE,
+       print.tau2          = FALSE,
+       spacing             = 1.3,
+       fontsize            = 12,
+       digits              = 2,
+       xlim                = c(1/30, 30),
+       at                  = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols            = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs            = c("Study", "Intv. (events)", "Total (n)",
+                                "Ctrl. (events)", "Total (n)"),
+       rightcols           = c("w.random", "effect", "ci"),
+       rightlabs           = c("Weight (%)", "OR", "95% CI"),
+       rob.legend          = FALSE,
+       colgap.rob          = "2mm",
+       colgap.rob.overall  = "4mm",
+       rob.text            = ""
+)
+
+grid::grid.text("Risk of Bias", x = 0.924, y = 0.952,
+                gp = grid::gpar(fontsize = 12, fontface = "bold"))
+
+footer_imp_3m_rob <- paste0(
+  "Subgroup effect: z = ", round(abs_zp_subsplit_3m$Implicit$z_value, 2),
+  ", p = ", formatC(abs_zp_subsplit_3m$Implicit$p_value, digits = 2),
+  ", NNT = ", abs_zp_subsplit_3m$Implicit$NNT
+)
+footer_exp_3m_rob <- paste0(
+  "Subgroup effect: z = ", round(abs_zp_subsplit_3m$Explicit$z_value, 2),
+  ", p = ", formatC(abs_zp_subsplit_3m$Explicit$p_value, digits = 2),
+  ", NNT = ", abs_zp_subsplit_3m$Explicit$NNT
+)
+footer_over_3m_rob <- paste0(
+  "Overall effect: z = ", round(abs_zp_overall_3m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_3m$p_value, digits = 2),
+  ", NNT = ", abs_zp_overall_3m$NNT
+)
+
+# Adjust the test statistics
+grid::grid.text(footer_imp_3m_rob,  x = 0.018, y = 0.362, just = "left",
+                gp = grid::gpar(fontsize = 11))
+grid::grid.text(footer_exp_3m_rob,  x = 0.018, y = 0.153, just = "left",
+                gp = grid::gpar(fontsize = 11))
+grid::grid.text(footer_over_3m_rob, x = 0.018, y = 0.02, just = "left",
+                gp = grid::gpar(fontsize = 11))
+
+gl <- grid::grid.ls(print = FALSE)
+for (nm in gl$name) {
+  if (!grepl("^GRID\\.text", nm)) next
+  g <- grid::grid.get(nm)
+  if (is.null(g$label)) next
+  labs <- as.character(g$label)
+  if (length(labs) == 1 && labs %in% c("+", "-", "x")) {
+    y_val <- switch(labs, "x" = 0.56, "+" = 0.50, "-" = 0.55)
+    x_val <- switch(labs, "x" = 0.52, "+" = 0.51, "-" = 0.49)
+    grid::grid.edit(nm, x = unit(x_val, "npc"), y = unit(y_val, "npc"), redraw = FALSE)
+  }
+}
+for (nm in gl$name) {
+  if (!grepl("^GRID\\.text", nm)) next
+  g <- grid::grid.get(nm)
+  if (is.null(g$label)) next
+  if (length(as.character(g$label)) == 1 && as.character(g$label) == "O") {
+    grid::grid.edit(nm, label = "OA", redraw = FALSE)
+  }
+}
+grid::grid.refresh()
+invisible(dev.off())
+```
+
+The second forest plot for our main analysis on intermediate-term effects on abstinence, with the integrated risk of bias ratings, will be exported as figure 4.
+
+```{r export-abs-6m-cog-rob, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Re-run metagen with subgroup
+abs_metagen_6m <- metagen(TE = lnOR,
+                    seTE = SElnOR,
+                    studlab = study,
+                    data = abs_d_full_6m,
+                    subgroup = `Cognitive system`,
+                    sm = "OR",
+                    method.tau = "REML",
+                    common = FALSE,
+                    random = TRUE,
+                    method.random.ci = "classic")
+
+# Match 6m studies to RoB ratings
+rob_6m_match <- rob_d %>%
+  dplyr::mutate(Study_clean = gsub("\\*$", "", Study)) %>%
+  dplyr::filter(Study_clean %in% abs_metagen_6m$studlab) %>%
+  dplyr::distinct(Study_clean, .keep_all = TRUE)
+rob_6m_match <- rob_6m_match[match(abs_metagen_6m$studlab, rob_6m_match$Study_clean), ]
+
+# Custom styling
+abs_metagen_6m_rob <- rob(
+  item1   = rob_6m_match$D1,
+  item2   = rob_6m_match$D2,
+  item3   = rob_6m_match$D3,
+  item4   = rob_6m_match$D4,
+  item5   = rob_6m_match$D5,
+  overall = rob_6m_match$Overall,
+  studlab = rob_6m_match$Study_clean,
+  tool    = "RoB2",
+  data    = abs_metagen_6m,
+  overwrite = TRUE,
+  domains = c("D1", "D2", "D3", "D4", "D5"),
+  col     = c("#02C100", "#E2DF07", "#BF0000"),
+  symbols = c("+", "-", "x"),
+  legend  = FALSE
+)
+
+# Domain labels
+names(abs_metagen_6m_rob$rob) <- gsub("^A$", "D1", names(abs_metagen_6m_rob$rob))
+names(abs_metagen_6m_rob$rob) <- gsub("^B$", "D2", names(abs_metagen_6m_rob$rob))
+names(abs_metagen_6m_rob$rob) <- gsub("^C$", "D3", names(abs_metagen_6m_rob$rob))
+names(abs_metagen_6m_rob$rob) <- gsub("^D$", "D4", names(abs_metagen_6m_rob$rob))
+names(abs_metagen_6m_rob$rob) <- gsub("^E$", "D5", names(abs_metagen_6m_rob$rob))
+for (attr_name in c("symbols", "col", "categories")) {
+  a <- attr(abs_metagen_6m_rob$rob, attr_name)
+  if (!is.null(a) && !is.null(names(a))) {
+    names(a) <- gsub("^A$", "D1", names(a))
+    names(a) <- gsub("^B$", "D2", names(a))
+    names(a) <- gsub("^C$", "D3", names(a))
+    names(a) <- gsub("^D$", "D4", names(a))
+    names(a) <- gsub("^E$", "D5", names(a))
+    attr(abs_metagen_6m_rob$rob, attr_name) <- a
+  }
+}
+
+# Prepare the final forest plot
+tiff(here::here("outputs", "figures", "fig_4_abs_inter_forest_rob.tiff"), width = 13, height = 6, units = "in", res = 600)
+forest(abs_metagen_6m_rob,
+       prediction          = TRUE,
+       prediction.subgroup = FALSE,
+       layout              = "BMJ",
+       subgroup            = TRUE,
+       overall             = TRUE,
+       random              = TRUE,
+       common              = FALSE,
+       test.subgroup       = FALSE,
+       print.stat          = FALSE,
+       print.I2            = TRUE,
+       print.Q             = TRUE,
+       print.pval.Q        = TRUE,
+       print.tau2          = FALSE,
+       spacing             = 1.3,
+       fontsize            = 12,
+       digits              = 2,
+       xlim                = c(1/30, 30),
+       at                  = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols            = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs            = c("Study", "Intv. (events)", "Total (n)",
+                                "Ctrl. (events)", "Total (n)"),
+       rightcols           = c("w.random", "effect", "ci"),
+       rightlabs           = c("Weight (%)", "OR", "95% CI"),
+       rob.legend          = FALSE,
+       colgap.rob          = "2mm",
+       colgap.rob.overall  = "4mm",
+       rob.text            = ""
+)
+
+grid::grid.text("Risk of Bias", x = 0.925, y = 0.932,
+                gp = grid::gpar(fontsize = 12, fontface = "bold"))
+
+footer_imp_6m_rob <- paste0(
+  "Subgroup effect: z = ", round(abs_zp_subsplit_6m$Implicit$z_value, 2),
+  ", p = ", formatC(abs_zp_subsplit_6m$Implicit$p_value, digits = 2),
+  ", NNT = ", abs_zp_subsplit_6m$Implicit$NNT
+)
+footer_exp_6m_rob <- paste0(
+  "Subgroup effect: z = ", round(abs_zp_subsplit_6m$Explicit$z_value, 2),
+  ", p = ", formatC(abs_zp_subsplit_6m$Explicit$p_value, digits = 2),
+  ", NNT = ", abs_zp_subsplit_6m$Explicit$NNT
+)
+footer_over_6m_rob <- paste0(
+  "Overall effect: z = ", round(abs_zp_overall_6m$z_value, 2),
+  ", p = ", formatC(abs_zp_overall_6m$p_value, digits = 2),
+  ", NNT = ", abs_zp_overall_6m$NNT
+)
+# Adjust the test statistics
+grid::grid.text(footer_imp_6m_rob,  x = 0.015, y = 0.46, just = "left",
+                gp = grid::gpar(fontsize = 11))
+grid::grid.text(footer_exp_6m_rob,  x = 0.015, y = 0.20, just = "left",
+                gp = grid::gpar(fontsize = 11))
+grid::grid.text(footer_over_6m_rob, x = 0.015, y = 0.025, just = "left",
+                gp = grid::gpar(fontsize = 11))
+
+gl <- grid::grid.ls(print = FALSE)
+for (nm in gl$name) {
+  if (!grepl("^GRID\\.text", nm)) next
+  g <- grid::grid.get(nm)
+  if (is.null(g$label)) next
+  labs <- as.character(g$label)
+  if (length(labs) == 1 && labs %in% c("+", "-", "x")) {
+    y_val <- switch(labs, "x" = 0.56, "+" = 0.50, "-" = 0.55)
+    x_val <- switch(labs, "x" = 0.52, "+" = 0.51, "-" = 0.49)
+    grid::grid.edit(nm, x = unit(x_val, "npc"), y = unit(y_val, "npc"), redraw = FALSE)
+  }
+}
+for (nm in gl$name) {
+  if (!grepl("^GRID\\.text", nm)) next
+  g <- grid::grid.get(nm)
+  if (is.null(g$label)) next
+  if (length(as.character(g$label)) == 1 && as.character(g$label) == "O") {
+    grid::grid.edit(nm, label = "OA", redraw = FALSE)
+  }
+}
+grid::grid.refresh()
+invisible(dev.off())
+```
+
+The third forest plot for our exploratory analysis on long-term effects on abstinence by intervention type, with the integrated risk of bias ratings, will be exported as figure 5.
+
+```{r export-abs-12m-intv-rob, fig.height=18, fig.width=14, message=FALSE, warning=FALSE, include=TRUE}
+# Match studies in the 12m-by-intervention meta-analysis to their RoB ratings
+rob_12m <- rob_d %>%
+  dplyr::mutate(Study_clean = gsub("\\*$", "", Study)) %>%
+  dplyr::filter(Study_clean %in% abs_exp_metagen_12m$studlab) %>%
+  dplyr::distinct(Study_clean, .keep_all = TRUE)
+rob_12m <- rob_12m[match(abs_exp_metagen_12m$studlab, rob_12m$Study_clean), ]
+
+# Attach RoB to the 12m-by-intervention metagen with explicit domain settings
+abs_exp_metagen_12m_rob <- rob(
+  item1   = rob_12m$D1,
+  item2   = rob_12m$D2,
+  item3   = rob_12m$D3,
+  item4   = rob_12m$D4,
+  item5   = rob_12m$D5,
+  overall = rob_12m$Overall,
+  studlab = rob_12m$Study_clean,
+  tool    = "RoB2",
+  data    = abs_exp_metagen_12m,
+  overwrite = TRUE,
+  domains = c("D1", "D2", "D3", "D4", "D5"),
+  col     = c("#02C100", "#E2DF07", "#BF0000"),
+  symbols = c("+", "-", "x"),
+  legend  = FALSE
+)
+# Domain labels
+names(abs_exp_metagen_12m_rob$rob) <- gsub("^A$", "D1", names(abs_exp_metagen_12m_rob$rob))
+names(abs_exp_metagen_12m_rob$rob) <- gsub("^B$", "D2", names(abs_exp_metagen_12m_rob$rob))
+names(abs_exp_metagen_12m_rob$rob) <- gsub("^C$", "D3", names(abs_exp_metagen_12m_rob$rob))
+names(abs_exp_metagen_12m_rob$rob) <- gsub("^D$", "D4", names(abs_exp_metagen_12m_rob$rob))
+names(abs_exp_metagen_12m_rob$rob) <- gsub("^E$", "D5", names(abs_exp_metagen_12m_rob$rob))
+for (attr_name in c("symbols", "col", "categories")) {
+  a <- attr(abs_exp_metagen_12m_rob$rob, attr_name)
+  if (!is.null(a) && !is.null(names(a))) {
+    names(a) <- gsub("^A$", "D1", names(a))
+    names(a) <- gsub("^B$", "D2", names(a))
+    names(a) <- gsub("^C$", "D3", names(a))
+    names(a) <- gsub("^D$", "D4", names(a))
+    names(a) <- gsub("^E$", "D5", names(a))
+    attr(abs_exp_metagen_12m_rob$rob, attr_name) <- a
+  }
+}
+# Prepare final forest plot
+tiff(here::here("outputs", "figures", "fig_5_abs_long_intv_forest_rob.tiff"), width = 13, height = 8, units = "in", res = 600)
+forest(abs_exp_metagen_12m_rob,
+       prediction          = TRUE,
+       prediction.subgroup = TRUE,
+       layout              = "BMJ",
+       subgroup            = TRUE,
+       overall             = TRUE,
+       random              = TRUE,
+       common              = FALSE,
+       test.subgroup       = FALSE,
+       print.stat          = FALSE,
+       print.I2            = TRUE,
+       print.Q             = TRUE,
+       print.pval.Q        = TRUE,
+       print.tau2          = FALSE,
+       spacing             = 1.3,
+       fontsize            = 12,
+       digits              = 2,
+       leftcols            = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs            = c("Study", "Intv. (events)", "Total (n)",
+                                "Ctrl. (events)", "Total (n)"),
+       rightcols           = c("w.random", "effect", "ci"),
+       rightlabs           = c("Weight (%)", "OR", "95% CI"),
+       rob.legend          = FALSE,
+       colgap.rob          = "2mm",
+       colgap.rob.overall  = "4mm",
+       rob.text            = ""
+)
+
+grid::grid.text("Risk of Bias", x = 0.925, y = 0.955,
+                gp = grid::gpar(fontsize = 12, fontface = "bold"))
+
+footer_itbm_12m_rob <- paste0(
+  "Subgroup effect: z = ", round(abs_exp_subsplit_12m$ItBM$z_value, 2),
+  ", p = ", formatC(abs_exp_subsplit_12m$ItBM$p_value, digits = 2),
+  ", NNH = ", abs(abs_exp_subsplit_12m$ItBM$NNT)
+)
+footer_apbm_12m_rob <- paste0(
+  "Subgroup effect: z = ", round(abs_exp_subsplit_12m$ApBM$z_value, 2),
+  ", p = ", formatC(abs_exp_subsplit_12m$ApBM$p_value, digits = 2),
+  ", NNT = ", abs_exp_subsplit_12m$ApBM$NNT
+)
+footer_over_12m_intv_rob <- paste0(
+  "Overall effect: z = ", round(abs_exp_zp_overall_12m$z_value, 2),
+  ", p = ", formatC(abs_exp_zp_overall_12m$p_value, digits = 2),
+  ", NNT = ", abs_exp_zp_overall_12m$NNT
+)
+
+# Adjust test statistics
+grid::grid.text(footer_itbm_12m_rob,      x = 0.0188, y = 0.562,  just = "left",
+                gp = grid::gpar(fontsize = 11))
+grid::grid.text(footer_apbm_12m_rob,      x = 0.0188, y = 0.145, just = "left",
+                gp = grid::gpar(fontsize = 11))
+grid::grid.text(footer_over_12m_intv_rob, x = 0.0188, y = 0.015,  just = "left",
+                gp = grid::gpar(fontsize = 11))
+
+gl <- grid::grid.ls(print = FALSE)
+for (nm in gl$name) {
+  if (!grepl("^GRID\\.text", nm)) next
+  g <- grid::grid.get(nm)
+  if (is.null(g$label)) next
+  labs <- as.character(g$label)
+  if (length(labs) == 1 && labs %in% c("+", "-", "x")) {
+    y_val <- switch(labs, "x" = 0.56, "+" = 0.50, "-" = 0.55)
+    x_val <- switch(labs, "x" = 0.52, "+" = 0.51, "-" = 0.49)
+    grid::grid.edit(nm, x = unit(x_val, "npc"), y = unit(y_val, "npc"), redraw = FALSE)
+  }
+}
+for (nm in gl$name) {
+  if (!grepl("^GRID\\.text", nm)) next
+  g <- grid::grid.get(nm)
+  if (is.null(g$label)) next
+  if (length(as.character(g$label)) == 1 && as.character(g$label) == "O") {
+    grid::grid.edit(nm, label = "OA", redraw = FALSE)
+  }
+}
+grid::grid.refresh()
+invisible(dev.off())
+```
+
+We finally export the combined contour-enhanced funnel plot for abstinence across the three time points (short-, intermediate-, and long-term), assembled with the `cowplot` package.
+This figure will be exported as figure 6.
+
+```{r export-abs-funnel-combined, fig.height=6, fig.width=18, message=FALSE, warning=FALSE, include=TRUE}
+# Build one contour-enhanced funnel panel (OR scale), no title
+make_abs_funnel <- function(meta_obj, egger_obj, y_max = 1.0) {
+  df      <- data.frame(lnOR = meta_obj$TE, se = meta_obj$seTE)
+  pooled  <- meta_obj$TE.random
+  se_seq  <- seq(0, y_max, length.out = 300)
+  x_range <- max(abs(df$lnOR), 2.576 * y_max) * 1.15
+  x_lo    <- -x_range;  x_hi <- x_range
+
+  make_poly <- function(z) rbind(
+    data.frame(x =  z * se_seq, y = se_seq),
+    data.frame(x = rev(-z * se_seq), y = rev(se_seq))
+  )
+
+  egger_label <- paste0("Egger's test: p = ", round(egger_obj$p.value, 3))
+  or_breaks   <- c(0.25, 0.5, 1, 2, 4)
+
+  ggplot() +
+    geom_polygon(data = make_poly(2.576), aes(x = x, y = y), fill = "grey55", colour = NA) +
+    geom_polygon(data = make_poly(1.960), aes(x = x, y = y), fill = "grey75", colour = NA) +
+    geom_polygon(data = make_poly(1.645), aes(x = x, y = y), fill = "white",  colour = NA) +
+    geom_vline(xintercept = 0, linetype = "dotted", colour = "black", linewidth = 0.5) +
+    geom_vline(xintercept = pooled, linetype = "dotted", colour = "black", linewidth = 0.5) +
+    geom_point(data = df, aes(x = lnOR, y = se),
+               shape = 21, fill = "white", colour = "black", size = 2.5, stroke = 0.7) +
+    annotation_custom(
+      grid::textGrob(
+        label = egger_label,
+        x = unit(0.995, "npc"), y = unit(0.985, "npc"),
+        hjust = 1, vjust = 1,
+        gp = grid::gpar(fontsize = 15, col = "black")
+      )
+    ) +
+    scale_x_continuous(
+      breaks = log(or_breaks), labels = or_breaks,
+      limits = c(x_lo, x_hi), name = "Odds Ratio"
+    ) +
+    scale_y_reverse(
+      name   = "Standard Error",
+      limits = c(y_max, 0),
+      breaks = seq(0, y_max, by = 0.2),
+      expand = expansion(mult = c(0.02, 0))
+    ) +
+    theme_classic(base_size = 16) +
+    theme(
+      panel.background = element_rect(fill = "white"),
+      plot.background  = element_rect(fill = "white", colour = "black", linewidth = 0.5),
+      axis.line        = element_line(colour = "black", linewidth = 0.4),
+      axis.ticks       = element_line(colour = "black", linewidth = 0.4),
+      axis.title       = element_text(size = 16),
+      axis.text        = element_text(size = 15),
+      plot.margin      = margin(18, 14, 10, 10)
+    )
+}
+
+# Wrap a panel in a ggdraw canvas: label occupies top 12%, funnel the rest
+label_panel <- function(p, label_text, label_x = 0.1, label_hjust = 0) {
+  ggdraw() +
+    draw_plot(p, x = 0.02, y = 0, width = 0.96, height = 0.86) +
+    draw_label(label_text, x = label_x, y = 0.97,
+               hjust = label_hjust, vjust = 1,
+               fontface = "bold", size = 20)
+}
+
+p_abs_3m  <- make_abs_funnel(abs_pupbias_3m,  abs_egger_3m)
+p_abs_6m  <- make_abs_funnel(abs_metagen_6m,  abs_egger_6m)
+p_abs_12m <- make_abs_funnel(abs_metagen_12m, abs_egger_12m)
+
+lp_3m  <- label_panel(p_abs_3m,  "a) Short-term abstinence (3 months)",
+                       label_x = 0.5, label_hjust = 0.5)
+lp_6m  <- label_panel(p_abs_6m,  "b) Intermediate-term abstinence (6 months)",
+                       label_x = 0.5, label_hjust = 0.5)
+lp_12m <- label_panel(p_abs_12m, "c) Long-term abstinence (12 months)")
+
+combined_abs_funnel <- plot_grid(lp_3m, lp_6m, lp_12m, nrow = 1, rel_widths = c(1, 1, 1))
+
+# Export as high-resolution tiff (Figure 6 in final manuscript)
+tiff(here::here("outputs", "figures", "fig_6_abs_funnel_combined.tiff"), width = 18, height = 6,
+     units = "in", res = 600)
+print(combined_abs_funnel)
+invisible(dev.off())
+
+# Display inline
+combined_abs_funnel
+```
+
+We finally export the remaining forest plots for the supplementary material.
+These are exported as simple forest plots (without the integrated risk of bias ratings), in the order they are produced in the report, and are numbered as supplementary figures S3 through S10.
+
+```{r export-abs-3m-sens-forest, fig.height=7, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Sensitivity-analysis forest plot, short-term abstinence (Figure S3)
+tiff(here::here("outputs", "figures", "fig_S3_abs_short_sens_forest.tiff"), width = 12, height = 7, units = "in", res = 600)
+forest(abs_sens_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = FALSE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       xlim = c(1/30, 30),
+       at = c(0.03, 0.08, 0.2, 0.5, 1, 2, 5, 12, 30),
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)", "Ctrl. (events)", "Total (n)"),
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+invisible(dev.off())
+```
+
+```{r export-red-3m-forest, fig.height=6, fig.width=11, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, short-term alcohol reduction (Figure S4)
+tiff(here::here("outputs", "figures", "fig_S4_red_short_forest.tiff"), width = 11, height = 3, units = "in", res = 600)
+forest(red_metagen_3m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_reduc_mean", "e_reduc_sd", "c_n", "c_reduc_mean",
+                    "c_reduc_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD",
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+invisible(dev.off())
+```
+
+```{r export-crav-3m-forest, fig.height=6, fig.width=11, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, short-term craving (Figure S5)
+tiff(here::here("outputs", "figures", "fig_S5_crav_short_forest.tiff"), width = 11, height = 5, units = "in", res = 600)
+forest(crav_metagen_3m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD",
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+invisible(dev.off())
+```
+
+```{r export-red-6m-forest, fig.height=5, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, intermediate-term alcohol reduction (Figure S6)
+tiff(here::here("outputs", "figures", "fig_S6_red_inter_forest.tiff"), width = 12, height = 3.5, units = "in", res = 600)
+forest(red_metagen_6m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_reduc_mean", "e_reduc_sd", "c_n", "c_reduc_mean",
+                    "c_reduc_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD",
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+invisible(dev.off())
+```
+
+```{r export-crav-6m-forest, fig.height=6, fig.width=11, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, intermediate-term craving (Figure S7)
+tiff(here::here("outputs", "figures", "fig_S7_crav_inter_forest.tiff"), width = 11, height = 3, units = "in", res = 600)
+forest(crav_metagen_6m,
+       prediction = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD",
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+invisible(dev.off())
+```
+
+```{r export-abs-exp-3m-forest, fig.height=10, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, short-term abstinence by intervention type (Figure S8)
+tiff(here::here("outputs", "figures", "fig_S8_abs_short_intv_forest.tiff"), width = 12, height = 10, units = "in", res = 600)
+forest(abs_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)",
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+invisible(dev.off())
+```
+
+```{r export-crav-exp-3m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, short-term craving by intervention type (Figure S9)
+tiff(here::here("outputs", "figures", "fig_S9_crav_short_intv_forest.tiff"), width = 12, height = 8, units = "in", res = 600)
+forest(crav_exp_metagen_3m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       overall = TRUE,
+       subgroup = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_n", "e_crav_mean", "e_crav_sd", "c_n", "c_crav_mean",
+                    "c_crav_sd"),
+       leftlabs = c("Study", "Intv. (n)", "Mean", "SD",
+                    "Ctrl. (n)", "Mean", "SD"),
+       just.addcols = "center"
+       )
+invisible(dev.off())
+```
+
+```{r export-abs-exp-6m-forest, fig.height=8, fig.width=12, message=FALSE, warning=FALSE, include=TRUE}
+# Forest plot, intermediate-term abstinence by intervention type (Figure S10)
+tiff(here::here("outputs", "figures", "fig_S10_abs_inter_intv_forest.tiff"), width = 12, height = 7, units = "in", res = 600)
+forest(abs_exp_metagen_6m,
+       prediction = TRUE,
+       prediction.subgroup = TRUE,
+       layout = "BMJ",
+       subgroup = TRUE,
+       overall = TRUE,
+       random = TRUE,
+       common = FALSE,
+       test.subgroup = FALSE,
+       print.stat = FALSE,
+       print.I2 = TRUE,
+       print.Q = TRUE,
+       print.pval.Q = TRUE,
+       print.tau2 = FALSE,
+       label.left = "Favors Control",
+       label.right = "Favors Intervention",
+       spacing = 1.2,
+       fontsize = 10,
+       digits = 2,
+       leftcols = c("studlab", "e_abs", "e_n", "c_abs", "c_n"),
+       leftlabs = c("Study", "Intv. (events)", "Total (n)",
+                    "Ctrl. (events)", "Total (n)"),
+       just.addcols = "center",
+       rightcols = c("w.random", "effect", "ci"),
+       rightlabs = c("Weight (%)", "OR", "95% CI")
+       )
+invisible(dev.off())
+```
+
+\newpage
