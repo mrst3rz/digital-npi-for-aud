@@ -30,6 +30,25 @@ The analyses require the following software:
 -   RStudio (recommended)
 -   Pandoc (installed automatically with RStudio)
 
+### System libraries (source builds)
+
+If your R installation builds packages from source rather than installing
+pre-compiled binaries — for example a Homebrew-installed R on macOS — a few
+system libraries must be present *before* running `renv::restore()`, otherwise
+`nloptr`/`lme4`/`meta` and `gert`/`usethis`/`devtools` will fail to compile:
+
+``` bash
+# macOS (Homebrew)
+brew install cmake libgit2 pkg-config
+```
+
+-   `cmake` is required to build `nloptr` (a dependency of `lme4`, which `meta` uses).
+-   `libgit2` and `pkg-config` are required to build `gert` (a dependency of `usethis`/`devtools`).
+
+On the official CRAN builds of R for macOS and Windows, `renv::restore()` uses
+pre-compiled binaries and these system libraries are not needed. On Linux, install
+the equivalent packages (e.g. `cmake`, `libgit2-dev`, `pkg-config`).
+
 ## Reproducibility instructions
 
 To reproduce the analyses and regenerate all results reported in the manuscript, please follow these steps:
